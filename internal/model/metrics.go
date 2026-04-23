@@ -1,4 +1,6 @@
-package models
+package model
+
+import "fmt"
 
 const (
 	Counter = "counter"
@@ -16,4 +18,44 @@ type Metrics struct {
 	Delta *int64   `json:"delta,omitempty"`
 	Value *float64 `json:"value,omitempty"`
 	Hash  string   `json:"hash,omitempty"`
+}
+
+type MemStorage struct {
+	Metrics map[string]Metrics
+}
+
+func NewMemStorage() *MemStorage {
+	return &MemStorage{
+		Metrics: make(map[string]Metrics),
+	}
+}
+
+func (ms *MemStorage) AddData(name string, mtype string, value float64) error {
+	val, ok := ms.Metrics[name]
+	if ok {
+		if val.MType != mtype {
+			return fmt.Errorf("Type mismatch")
+		}
+		switch val.MType {
+		case Counter:
+			*val.Value += value
+		case Gauge:
+			*val.Value = value
+		}
+		return nil
+	}
+	if !IsValidMetricType(mtype) {
+		return fmt.Errorf("Invalid type")
+	}
+
+	ms.Metrics[name] = Metrics{
+		ID:    name,
+		MType: mtype,
+		Value: &value,
+	}
+	return nil
+}
+
+func IsValidMetricType(mType string) bool {
+	return mType == Counter || mType == Gauge
 }
