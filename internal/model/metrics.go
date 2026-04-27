@@ -44,7 +44,7 @@ func (ms *MemStorage) AddData(name string, mtype string, value float64) error {
 		}
 		return nil
 	}
-	if !IsValidMetricType(mtype) {
+	if !isValidMetricType(mtype) {
 		return fmt.Errorf("Invalid type")
 	}
 
@@ -56,6 +56,6 @@ func (ms *MemStorage) AddData(name string, mtype string, value float64) error {
 	return nil
 }
 
-func IsValidMetricType(mType string) bool {
+func isValidMetricType(mType string) bool {
 	return mType == Counter || mType == Gauge
 }
