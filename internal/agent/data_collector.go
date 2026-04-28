@@ -13,12 +13,12 @@ type metric struct {
 }
 
 type DataCollector struct {
-	memStt  runtime.MemStats
+	memStt  *runtime.MemStats
 	metrics []metric
 }
 
 func NewDataCollector() *DataCollector {
-	var memStats runtime.MemStats
+	memStats := new(runtime.MemStats)
 	return &DataCollector{
 		memStt: memStats,
 		metrics: []metric{
@@ -146,7 +146,7 @@ func NewDataCollector() *DataCollector {
 }
 
 func (dc *DataCollector) UpdMetrics() {
-	runtime.ReadMemStats(&dc.memStt)
+	runtime.ReadMemStats(dc.memStt)
 	for i := range dc.metrics {
 		metric := &dc.metrics[i]
 		//В соответствии с типом либо переписываем, либо инкрементируем значение

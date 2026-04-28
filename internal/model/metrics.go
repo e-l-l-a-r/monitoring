@@ -59,3 +59,18 @@ func (ms *MemStorage) AddData(name string, mtype string, value float64) error {
 func isValidMetricType(mType string) bool {
 	return mType == Counter || mType == Gauge
 }
+
+func (ms *MemStorage) GetValues() map[string]Metrics {
+	return ms.Metrics
+}
+
+func (ms *MemStorage) GetValue(name string, mtype string) (float64, error) {
+	val, ok := ms.Metrics[name]
+	if !ok {
+		return 0.0, fmt.Errorf("Metric not found")
+	}
+	if val.MType != mtype {
+		return 0.0, fmt.Errorf("Type mismatch")
+	}
+	return *val.Value, nil
+}

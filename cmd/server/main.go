@@ -13,8 +13,8 @@ func main() {
 }
 
 func run() error {
-	router := handler.NewRouter()
-	err := http.ListenAndServe(`:8080`, router.GetMux())
+	router := handler.GetRouter()
+	err := http.ListenAndServe(`:8080`, router)
 	if err != nil {
 		panic(err)
 	}

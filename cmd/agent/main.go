@@ -13,7 +13,7 @@ import (
 const (
 	pollInterval   = 2
 	reportInterval = 10
-	reportURL      = "http://localhost:8080/update/"
+	reportURL      = "http://localhost:8080/update"
 )
 
 func main() {
@@ -41,7 +41,7 @@ func main() {
 					panic(err)
 				}
 				if response.StatusCode != http.StatusOK {
-					fmt.Printf("status code: %d", response.StatusCode)
+					fmt.Printf("url: %s\n\tstatus code: %d\t", url, response.StatusCode)
 					io.Copy(os.Stdout, response.Body)
 					response.Body.Close()
 				}
