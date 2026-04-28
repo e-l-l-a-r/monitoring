@@ -67,10 +67,10 @@ func (ms *MemStorage) GetValues() map[string]Metrics {
 func (ms *MemStorage) GetValue(name string, mtype string) (float64, error) {
 	val, ok := ms.Metrics[name]
 	if !ok {
-		return 0.0, fmt.Errorf("Metric not found")
+		return -1, fmt.Errorf("Metric not found")
 	}
 	if val.MType != mtype {
-		return 0.0, fmt.Errorf("Type mismatch")
+		return 0, fmt.Errorf("Type mismatch")
 	}
 	return *val.Value, nil
 }

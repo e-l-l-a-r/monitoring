@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/e-l-l-a-r/monitoring/internal/model"
 	"github.com/go-chi/chi/v5"
@@ -27,13 +28,29 @@ func listMetrics(resp http.ResponseWriter, req *http.Request) {
 	resp.Write([]byte(fmt.Sprint("</table></BODY></HTML>")))
 }
 
+func formatFloat(f float64) string {
+	// Сначала форматируем до 2 знаков после запятой
+	s := fmt.Sprintf("%.3f", f)
+
+	// Убираем лишние нули и точку, если она в конце
+	s = strings.TrimRight(s, "0")
+	s = strings.TrimRight(s, ".")
+	return s
+}
+
 func getMetric(resp http.ResponseWriter, req *http.Request) {
 	val, err := storage.GetValue(chi.URLParam(req, "name"), chi.URLParam(req, "mtype"))
 	if err != nil {
-		http.Error(resp, err.Error(), http.StatusBadRequest)
+		switch val {
+		case 0:
+			http.Error(resp, err.Error(), http.StatusBadRequest)
+		case -1:
+			http.Error(resp, err.Error(), http.StatusNotFound)
+		}
+
 		return
 	}
-	resp.Write([]byte(fmt.Sprintf("%.2f", val)))
+	resp.Write([]byte(formatFloat(val)))
 }
 
 func incorrectApi(resp http.ResponseWriter, req *http.Request) {
