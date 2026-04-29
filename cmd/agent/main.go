@@ -1,6 +1,7 @@
 package main
 
 import (
+	goflag "flag"
 	"fmt"
 	"io"
 	"net/http"
@@ -8,16 +9,35 @@ import (
 	"time"
 
 	"github.com/e-l-l-a-r/monitoring/internal/agent"
+	flag "github.com/spf13/pflag"
 )
 
-const (
-	pollInterval   = 2
-	reportInterval = 10
-	reportURL      = "http://localhost:8080/update"
-)
+var flagRunAddr *string = flag.StringP("address", "a", "localhost:8080",
+	"address and port to run server")
+var pollInterval *int8 = flag.Int8P("poll-interval", "p", 2,
+	"number of seconds to update metrics")
+var reportInterval *int8 = flag.Int8P("report-interval", "r", 10,
+	"number of seconds to send metrics to server")
+
+func parseFlags() {
+	flag.CommandLine.AddGoFlagSet(goflag.CommandLine)
+
+	flag.Usage = func() {
+		fmt.Fprintf(flag.CommandLine.Output(), "Metrics collecting agent\nUsage of %s:\n", os.Args[0])
+		flag.PrintDefaults()
+	}
+
+	flag.Parse()
+}
 
 func main() {
 	var counter int8
+
+	parseFlags()
+
+	fmt.Println("Connect to server ", *flagRunAddr)
+	fmt.Println("pollInterval: ", *pollInterval)
+	fmt.Println("reportInterval: ", *reportInterval)
 
 	mon := agent.NewDataCollector()
 	client := http.Client{
@@ -27,9 +47,9 @@ func main() {
 	for {
 		mon.UpdMetrics()
 		// отправляем данные только по достижении счетчиком заданного значения
-		if counter >= reportInterval {
+		if counter >= *reportInterval {
 			for key, val := range mon.GetValues() {
-				url := fmt.Sprintf("%s/%s/%s/%f", reportURL, val.MType, key, val.Val)
+				url := fmt.Sprintf("http://%s/update/%s/%s/%f", *flagRunAddr, val.MType, key, val.Val)
 				request, err := http.NewRequest(http.MethodPost, url, nil)
 				if err != nil {
 					panic(err)
@@ -49,7 +69,7 @@ func main() {
 			fmt.Println("All sent")
 			counter = 0
 		}
-		time.Sleep(pollInterval * time.Second)
-		counter += pollInterval
+		time.Sleep(time.Duration(*pollInterval) * time.Second)
+		counter += *pollInterval
 	}
 }

@@ -6,29 +6,56 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestMemStorage_AddData(t *testing.T) {
-	ms := NewMemStorage()
-	ms.AddData("test", Gauge, 1.0)
-	assert.Equal(t, *ms.Metrics["test"].Value, 1.0)
-	ms.AddData("test", Gauge, 2.0)
-	assert.Equal(t, *ms.Metrics["test"].Value, 2.0)
-	ms.AddData("test", Gauge, -1.0)
-	assert.Equal(t, *ms.Metrics["test"].Value, -1.0)
-	ms.AddData("alt_test", Gauge, 1.5)
-	assert.Equal(t, *ms.Metrics["alt_test"].Value, 1.5)
-	assert.Equal(t, *ms.Metrics["test"].Value, -1.0)
+var ms *MemStorage = NewMemStorage()
 
-	ms.AddData("cnt", Counter, 1.5)
-	assert.Equal(t, *ms.Metrics["cnt"].Value, 1.5)
-	ms.AddData("cnt", Counter, 1.5)
-	assert.Equal(t, *ms.Metrics["cnt"].Value, 3.0)
-	ms.AddData("cnt", Counter, -1.0)
-	assert.Equal(t, *ms.Metrics["cnt"].Value, 2.0)
+func TestMemStorage_GoodCases(t *testing.T) {
 
-	err := ms.AddData("cnt", Gauge, 1.5)
-	assert.EqualError(t, err, "Type mismatch")
-	assert.Equal(t, *ms.Metrics["cnt"].Value, 2.0)
+	tests := []struct {
+		name     string
+		key      string
+		mType    string
+		val      float64
+		expected float64
+	}{
+		{"Init gauge", "test", Gauge, 1.0, 1.0},
+		{"Change gauge", "test", Gauge, 2.0, 2.0},
+		{"Change to negative", "test", Gauge, -1.0, -1.0},
+		{"Init other gauge", "alt_test", Gauge, 1.5, 1.5},
+		{"Init counter", "cnt", Counter, 1.5, 1.5},
+		{"Update counter", "cnt", Counter, 1.5, 3.0},
+		{"Update with negative", "cnt", Counter, -1.0, 2.0},
+	}
 
-	err = ms.AddData("bad", "bad", 1.5)
-	assert.EqualError(t, err, "Invalid type")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ms.AddData(tt.key, tt.mType, tt.val)
+			val, err := ms.GetValue(tt.key, tt.mType)
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expected, val)
+		})
+	}
+}
+
+func TestMemStorage_BadCases(t *testing.T) {
+	tests := []struct {
+		name     string
+		key      string
+		mType    string
+		val      float64
+		expected string
+	}{
+		{"Add incorrect type", "cnt", Gauge, 1.0, "Type mismatch"},
+		{"Add wrong type", "bad", "bad", 2.0, "Invalid type"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ms.AddData(tt.key, tt.mType, tt.val)
+			assert.EqualError(t, err, tt.expected)
+		})
+	}
+
+	val, err := ms.GetValue("cnt", Counter)
+	assert.NoError(t, err)
+	assert.Equal(t, 2.0, val)
 }
