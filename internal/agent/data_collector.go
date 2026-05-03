@@ -3,177 +3,117 @@ package agent
 import (
 	"math/rand"
 	"runtime"
+
+	"github.com/e-l-l-a-r/monitoring/internal/model"
 )
 
 type metric struct {
-	name   string
+	model.Metrics
 	getter func() float64
-	Val    float64
-	MType  string
+}
+
+func NewMetric(name string, mtype string, getter func() float64) *metric {
+	return &metric{
+		Metrics: model.NewMetrics(name, mtype, 0),
+		getter:  getter,
+	}
 }
 
 type DataCollector struct {
 	memStt  *runtime.MemStats
-	metrics []metric
+	metrics map[string]metric
 }
 
 func NewDataCollector() *DataCollector {
 	memStats := new(runtime.MemStats)
 	return &DataCollector{
 		memStt: memStats,
-		metrics: []metric{
-			{
-				name:   "Alloc",
-				getter: func() float64 { return float64(memStats.Alloc) },
-				MType:  "gauge",
-			},
-			{
-				name:   "BuckHashSys",
-				getter: func() float64 { return float64(memStats.BuckHashSys) },
-				MType:  "gauge",
-			},
-			{
-				name:   "Frees",
-				getter: func() float64 { return float64(memStats.Frees) },
-				MType:  "gauge",
-			}, {
-				name:   "GCCPUFraction",
-				getter: func() float64 { return float64(memStats.GCCPUFraction) },
-				MType:  "gauge",
-			}, {
-				name:   "GCSys",
-				getter: func() float64 { return float64(memStats.GCSys) },
-				MType:  "gauge",
-			}, {
-				name:   "HeapAlloc",
-				getter: func() float64 { return float64(memStats.HeapAlloc) },
-				MType:  "gauge",
-			}, {
-				name:   "HeapIdle",
-				getter: func() float64 { return float64(memStats.HeapIdle) },
-				MType:  "gauge",
-			}, {
-				name:   "HeapInuse",
-				getter: func() float64 { return float64(memStats.HeapInuse) },
-				MType:  "gauge",
-			}, {
-				name:   "HeapObjects",
-				getter: func() float64 { return float64(memStats.HeapObjects) },
-				MType:  "gauge",
-			}, {
-				name:   "HeapReleased",
-				getter: func() float64 { return float64(memStats.HeapReleased) },
-				MType:  "gauge",
-			}, {
-				name:   "HeapSys",
-				getter: func() float64 { return float64(memStats.HeapSys) },
-				MType:  "gauge",
-			}, {
-				name:   "LastGC",
-				getter: func() float64 { return float64(memStats.LastGC) },
-				MType:  "gauge",
-			}, {
-				name:   "Lookups",
-				getter: func() float64 { return float64(memStats.Lookups) },
-				MType:  "gauge",
-			}, {
-				name:   "MCacheInuse",
-				getter: func() float64 { return float64(memStats.MCacheInuse) },
-				MType:  "gauge",
-			}, {
-				name:   "MCacheSys",
-				getter: func() float64 { return float64(memStats.MCacheSys) },
-				MType:  "gauge",
-			}, {
-				name:   "MSpanInuse",
-				getter: func() float64 { return float64(memStats.MSpanInuse) },
-				MType:  "gauge",
-			}, {
-				name:   "MSpanSys",
-				getter: func() float64 { return float64(memStats.MSpanSys) },
-				MType:  "gauge",
-			}, {
-				name:   "Mallocs",
-				getter: func() float64 { return float64(memStats.Mallocs) },
-				MType:  "gauge",
-			}, {
-				name:   "NextGC",
-				getter: func() float64 { return float64(memStats.NextGC) },
-				MType:  "gauge",
-			}, {
-				name:   "NumForcedGC",
-				getter: func() float64 { return float64(memStats.NumForcedGC) },
-				MType:  "gauge",
-			}, {
-				name:   "NumGC",
-				getter: func() float64 { return float64(memStats.NumGC) },
-				MType:  "gauge",
-			}, {
-				name:   "OtherSys",
-				getter: func() float64 { return float64(memStats.OtherSys) },
-				MType:  "gauge",
-			}, {
-				name:   "PauseTotalNs",
-				getter: func() float64 { return float64(memStats.PauseTotalNs) },
-				MType:  "gauge",
-			}, {
-				name:   "StackInuse",
-				getter: func() float64 { return float64(memStats.StackInuse) },
-				MType:  "gauge",
-			}, {
-				name:   "StackSys",
-				getter: func() float64 { return float64(memStats.StackSys) },
-				MType:  "gauge",
-			}, {
-				name:   "Sys",
-				getter: func() float64 { return float64(memStats.Sys) },
-				MType:  "gauge",
-			}, {
-				name:   "TotalAlloc",
-				getter: func() float64 { return float64(memStats.TotalAlloc) },
-				MType:  "gauge",
-			}, {
-				name:   "PollCount",
-				getter: func() float64 { return 1.0 },
-				MType:  "counter",
-			}, {
-				name:   "RandomValue",
-				getter: func() float64 { return rand.Float64() },
-				MType:  "gauge",
-			},
+		metrics: map[string]metric{
+			"Alloc": *NewMetric("Alloc", model.Gauge,
+				func() float64 { return float64(memStats.Alloc) }),
+			"BuckHashSys": *NewMetric("BuckHashSys", model.Gauge,
+				func() float64 { return float64(memStats.BuckHashSys) }),
+			"Frees": *NewMetric("Frees", model.Gauge,
+				func() float64 { return float64(memStats.Frees) }),
+			"GCCPUFraction": *NewMetric("GCCPUFraction", model.Gauge,
+				func() float64 { return float64(memStats.GCCPUFraction) }),
+			"GCSys": *NewMetric("GCSys", model.Gauge,
+				func() float64 { return float64(memStats.GCSys) }),
+			"HeapAlloc": *NewMetric("HeapAlloc", model.Gauge,
+				func() float64 { return float64(memStats.HeapAlloc) }),
+			"HeapIdle": *NewMetric("HeapIdle", model.Gauge,
+				func() float64 { return float64(memStats.HeapIdle) }),
+			"HeapInuse": *NewMetric("HeapInuse", model.Gauge,
+				func() float64 { return float64(memStats.HeapInuse) }),
+			"HeapObjects": *NewMetric("HeapObjects", model.Gauge,
+				func() float64 { return float64(memStats.HeapObjects) }),
+			"HeapReleased": *NewMetric("HeapReleased", model.Gauge,
+				func() float64 { return float64(memStats.HeapReleased) }),
+			"HeapSys": *NewMetric("HeapSys", model.Gauge,
+				func() float64 { return float64(memStats.HeapSys) }),
+			"LastGC": *NewMetric("LastGC", model.Gauge,
+				func() float64 { return float64(memStats.LastGC) }),
+			"Lookups": *NewMetric("Lookups", model.Gauge,
+				func() float64 { return float64(memStats.Lookups) }),
+			"MCacheInuse": *NewMetric("MCacheInuse", model.Gauge,
+				func() float64 { return float64(memStats.MCacheInuse) }),
+			"MCacheSys": *NewMetric("MCacheSys", model.Gauge,
+				func() float64 { return float64(memStats.MCacheSys) }),
+			"MSpanInuse": *NewMetric("MSpanInuse", model.Gauge,
+				func() float64 { return float64(memStats.MSpanInuse) }),
+			"MSpanSys": *NewMetric("MSpanSys", model.Gauge,
+				func() float64 { return float64(memStats.MSpanSys) }),
+			"Mallocs": *NewMetric("Mallocs", model.Gauge,
+				func() float64 { return float64(memStats.Mallocs) }),
+			"NextGC": *NewMetric("NextGC", model.Gauge,
+				func() float64 { return float64(memStats.NextGC) }),
+			"NumForcedGC": *NewMetric("NumForcedGC", model.Gauge,
+				func() float64 { return float64(memStats.NumForcedGC) }),
+			"NumGC": *NewMetric("NumGC", model.Gauge,
+				func() float64 { return float64(memStats.NumGC) }),
+			"OtherSys": *NewMetric("OtherSys", model.Gauge,
+				func() float64 { return float64(memStats.OtherSys) }),
+			"PauseTotalNs": *NewMetric("PauseTotalNs", model.Gauge,
+				func() float64 { return float64(memStats.PauseTotalNs) }),
+			"StackInuse": *NewMetric("StackInuse", model.Gauge,
+				func() float64 { return float64(memStats.StackInuse) }),
+			"StackSys": *NewMetric("StackSys", model.Gauge,
+				func() float64 { return float64(memStats.StackSys) }),
+			"Sys": *NewMetric("Sys", model.Gauge,
+				func() float64 { return float64(memStats.Sys) }),
+			"TotalAlloc": *NewMetric("TotalAlloc", model.Gauge,
+				func() float64 { return float64(memStats.TotalAlloc) }),
+			"PollCount": *NewMetric("PollCount", model.Counter,
+				func() float64 { return 1.0 }),
+			"RandomValue": *NewMetric("RandomValue", model.Gauge,
+				func() float64 { return rand.Float64() }),
 		},
 	}
 }
 
 func (dc *DataCollector) UpdMetrics() {
 	runtime.ReadMemStats(dc.memStt)
-	for i := range dc.metrics {
-		metric := &dc.metrics[i]
+	for _, metric := range dc.metrics {
 		//В соответствии с типом либо переписываем, либо инкрементируем значение
 		switch metric.MType {
 
 		case "gauge":
-			metric.Val = metric.getter()
+			*metric.Value = metric.getter()
 
 		case "counter":
-			metric.Val += metric.getter()
+			*metric.Value += metric.getter()
 
 		}
 	}
 }
 
-func (dc *DataCollector) GetValues() (result map[string]metric) {
-	result = make(map[string]metric)
-	for i, metric := range dc.metrics {
-		result[metric.name] = metric
-
-		// На скервере значение счетчика приплюсовывается к предыдущему,
-		//поэтому храним только сумму за прошедшее с прошлой отправки время
-		if metric.MType == "counter" {
-			data := &dc.metrics[i]
-			data.Val = 0
-		}
+func (dc *DataCollector) GetValues() map[string]metric {
+	return dc.metrics
+}
+func (dc *DataCollector) OnSuccessSent(name string) {
+	val, ok := dc.metrics[name]
+	if ok && val.MType == "counter" {
+		*val.Value = 0
 	}
 
-	return
 }

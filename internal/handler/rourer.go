@@ -1,67 +1,93 @@
 package handler
 
 import (
-	"fmt"
+	"errors"
+	"html/template"
 	"net/http"
 	"strconv"
-	"strings"
 
-	"github.com/e-l-l-a-r/monitoring/internal/model"
+	"github.com/e-l-l-a-r/monitoring/internal/repository"
 	"github.com/go-chi/chi/v5"
 )
 
-var (
-	storage *model.MemStorage
-)
-
-func init() {
-	storage = model.NewMemStorage()
-}
-
-func listMetrics(resp http.ResponseWriter, req *http.Request) {
-	resp.Write([]byte(fmt.Sprint("<HTML><BODY><H2>Список метрик</H2><table>")))
-	resp.Write([]byte(fmt.Sprint("<tr><td>Имя</td><td>Тип</td><td>Значение</td></tr>")))
-	for name, metric := range storage.GetValues() {
-		resp.Write([]byte(fmt.Sprintf("<tr><td>%s</td><td>%s</td><td>%.2f</td></tr>",
-			name, metric.MType, *metric.Value)))
-	}
-	resp.Write([]byte(fmt.Sprint("</table></BODY></HTML>")))
-}
-
-func formatFloat(f float64) string {
-	// Сначала форматируем до 2 знаков после запятой
-	s := fmt.Sprintf("%.3f", f)
-
-	// Убираем лишние нули и точку, если она в конце
-	s = strings.TrimRight(s, "0")
-	s = strings.TrimRight(s, ".")
-	return s
-}
-
-func getMetric(resp http.ResponseWriter, req *http.Request) {
-	val, err := storage.GetValue(chi.URLParam(req, "name"), chi.URLParam(req, "mtype"))
-	if err != nil {
-		switch val {
-		case 0:
-			http.Error(resp, err.Error(), http.StatusBadRequest)
-		case -1:
-			http.Error(resp, err.Error(), http.StatusNotFound)
+func listMetrics(storage *repository.MemStorage) http.HandlerFunc {
+	return func(resp http.ResponseWriter, req *http.Request) {
+		type MetricRow struct {
+			Name  string
+			Type  string
+			Value float64
 		}
 
-		return
+		const metricListTemplate = `
+		<HTML>
+		<BODY>
+		<H2>Список метрик</H2>
+		<table border="1" cellpadding="5" cellspacing="0">
+			<tr>
+				<th>Имя</th>
+				<th>Тип</th>
+				<th>Значение</th>
+			</tr>
+			{{range .}}
+			<tr>
+				<td>{{.Name}}</td>
+				<td>{{.Type}}</td>
+				<td>{{printf "%.2f" .Value}}</td>
+			</tr>
+			{{end}}
+		</table>
+		</BODY>
+		</HTML>
+		`
+
+		tmpl, err := template.New("metric-list").Parse(metricListTemplate)
+		if err != nil {
+			http.Error(resp, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+
+		rows := make([]MetricRow, 0, len(storage.GetValues()))
+		for _, metric := range storage.GetValues() {
+			rows = append(rows, MetricRow{
+				Name:  metric.ID,
+				Type:  metric.MType,
+				Value: *metric.Value,
+			})
+		}
+
+		err = tmpl.Execute(resp, rows)
+		if err != nil {
+			http.Error(resp, "Internal Server Error", http.StatusInternalServerError)
+		}
 	}
-	resp.Write([]byte(formatFloat(val)))
 }
 
-func incorrectApi(resp http.ResponseWriter, req *http.Request) {
+func getMetric(storage *repository.MemStorage) http.HandlerFunc {
+	return func(resp http.ResponseWriter, req *http.Request) {
+		val, err := storage.GetValue(chi.URLParam(req, "name"), chi.URLParam(req, "mtype"))
+		if err != nil {
+			if _, ok := errors.AsType[*repository.MetricNotFoundError](err); ok {
+				http.Error(resp, err.Error(), http.StatusNotFound)
+			} else if _, ok := errors.AsType[*repository.TypeMismatchError](err); ok {
+				http.Error(resp, err.Error(), http.StatusBadRequest)
+			} else {
+				http.Error(resp, "Internal Server Error", http.StatusInternalServerError)
+			}
+			return
+		}
+		resp.Write([]byte(strconv.FormatFloat(val, 'f', -1, 64)))
+	}
+}
+
+func incorrectApi(resp http.ResponseWriter, _ *http.Request) {
 	http.Error(resp, "Incorrect API", http.StatusBadRequest)
 }
 
-func notFound(resp http.ResponseWriter, req *http.Request) {
+func notFound(resp http.ResponseWriter, _ *http.Request) {
 	http.Error(resp, "No metric name", http.StatusNotFound)
 
 }
-func badRequest(resp http.ResponseWriter, req *http.Request) {
+func badRequest(resp http.ResponseWriter, _ *http.Request) {
 	http.Error(resp, "No value", http.StatusBadRequest)
 }
 
@@ -76,46 +102,35 @@ func GetRouter() *chi.Mux {
 	}
 	routesInstalled = true
 	rtr = chi.NewRouter()
+	storage := repository.NewMemStorage()
 
-	rtr.Route("/", func(r chi.Router) {
-		r.Get("/", listMetrics)
-		r.Post("/", incorrectApi)
-		r.Route("/update", func(r chi.Router) {
-			r.Post("/", incorrectApi)
-			r.Route("/{mtype}", func(r chi.Router) {
-				r.Post("/", notFound)
-				r.Route("/{name}", func(r chi.Router) {
-					r.Post("/", badRequest)
-					r.Route("/{val}", func(r chi.Router) {
-						r.Post("/", updMetric)
-					})
-				})
-			})
-		})
-		r.Route("/value", func(r chi.Router) {
-			r.Route("/{mtype}", func(r chi.Router) {
-				r.Route("/{name}", func(r chi.Router) {
-					r.Get("/", getMetric)
-				})
-			})
-		})
-	})
+	rtr.Get("/", listMetrics(storage))
+	rtr.Post("/", incorrectApi)
+
+	rtr.Post("/update/", incorrectApi)
+	rtr.Post("/update/{mtype}/", notFound)
+	rtr.Post("/update/{mtype}/{name}/", badRequest)
+	rtr.Post("/update/{mtype}/{name}/{val}", updMetric(storage))
+
+	rtr.Get("/value/{mtype}/{name}", getMetric(storage))
 
 	return rtr
 }
 
-func updMetric(resp http.ResponseWriter, req *http.Request) {
-	val, err := strconv.ParseFloat(chi.URLParam(req, "val"), 64)
-	if err != nil {
-		http.Error(resp, "Incorrect value", http.StatusBadRequest)
-		return
-	}
-	err = storage.AddData(chi.URLParam(req, "name"), chi.URLParam(req, "mtype"), val)
-	if err != nil {
-		http.Error(resp, err.Error(), http.StatusBadRequest)
-		return
-	}
+func updMetric(storage *repository.MemStorage) http.HandlerFunc {
+	return func(resp http.ResponseWriter, req *http.Request) {
+		val, err := strconv.ParseFloat(chi.URLParam(req, "val"), 64)
+		if err != nil {
+			http.Error(resp, "Incorrect value", http.StatusBadRequest)
+			return
+		}
+		err = storage.AddData(chi.URLParam(req, "name"), chi.URLParam(req, "mtype"), val)
+		if err != nil {
+			http.Error(resp, err.Error(), http.StatusBadRequest)
+			return
+		}
 
-	resp.Write([]byte(""))
+		resp.Write([]byte(""))
+	}
 
 }

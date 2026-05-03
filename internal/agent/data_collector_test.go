@@ -24,16 +24,17 @@ func TestDataCollector_UpdMetrics(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			dc.UpdMetrics()
 			for _, metric := range dc.metrics {
-				switch metric.name {
+				switch metric.ID {
 				case "PollCount":
-					assert.Equal(t, tt.val, metric.Val)
+					assert.Equal(t, tt.val, *metric.Value)
 					if tt.val == 4.0 {
 						vals := dc.GetValues()
-						assert.Equal(t, tt.val, vals["PollCount"].Val)
+						assert.Equal(t, tt.val, *vals["PollCount"].Value)
+						dc.OnSuccessSent("PollCount")
 					}
 				case "RandomValue":
-					assert.NotEqual(t, rnd, metric.Val)
-					rnd = metric.Val
+					assert.NotEqual(t, rnd, *metric.Value)
+					rnd = *metric.Value
 				}
 			}
 		})

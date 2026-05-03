@@ -1,8 +1,9 @@
-package model
+package repository
 
 import (
 	"testing"
 
+	"github.com/e-l-l-a-r/monitoring/internal/model"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -17,13 +18,13 @@ func TestMemStorage_GoodCases(t *testing.T) {
 		val      float64
 		expected float64
 	}{
-		{"Init gauge", "test", Gauge, 1.0, 1.0},
-		{"Change gauge", "test", Gauge, 2.0, 2.0},
-		{"Change to negative", "test", Gauge, -1.0, -1.0},
-		{"Init other gauge", "alt_test", Gauge, 1.5, 1.5},
-		{"Init counter", "cnt", Counter, 1.5, 1.5},
-		{"Update counter", "cnt", Counter, 1.5, 3.0},
-		{"Update with negative", "cnt", Counter, -1.0, 2.0},
+		{"Init gauge", "test", model.Gauge, 1.0, 1.0},
+		{"Change gauge", "test", model.Gauge, 2.0, 2.0},
+		{"Change to negative", "test", model.Gauge, -1.0, -1.0},
+		{"Init other gauge", "alt_test", model.Gauge, 1.5, 1.5},
+		{"Init counter", "cnt", model.Counter, 1.5, 1.5},
+		{"Update counter", "cnt", model.Counter, 1.5, 3.0},
+		{"Update with negative", "cnt", model.Counter, -1.0, 2.0},
 	}
 
 	for _, tt := range tests {
@@ -44,7 +45,7 @@ func TestMemStorage_BadCases(t *testing.T) {
 		val      float64
 		expected string
 	}{
-		{"Add incorrect type", "cnt", Gauge, 1.0, "Type mismatch"},
+		{"Add incorrect type", "cnt", model.Gauge, 1.0, "Type mismatch"},
 		{"Add wrong type", "bad", "bad", 2.0, "Invalid type"},
 	}
 
@@ -55,7 +56,7 @@ func TestMemStorage_BadCases(t *testing.T) {
 		})
 	}
 
-	val, err := ms.GetValue("cnt", Counter)
+	val, err := ms.GetValue("cnt", model.Counter)
 	assert.NoError(t, err)
 	assert.Equal(t, 2.0, val)
 }

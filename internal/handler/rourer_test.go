@@ -80,14 +80,6 @@ func TestUpdateHandler_ValidRequest(t *testing.T) {
 
 			assert.Equal(t, http.StatusOK, resp.StatusCode)
 			assert.Equal(t, tt.result, get)
-
-			// Проверяем, что метрика была добавлена
-			metric, ok := storage.Metrics[tt.mName]
-
-			assert.True(t, ok, "Метрика '%s' не найдена в хранилище", tt.mName)
-			assert.Equal(t, tt.mType, metric.MType, "Неверный тип метрики")
-			assert.Equal(t, tt.mValue, *metric.Value)
-
 		})
 	}
 }

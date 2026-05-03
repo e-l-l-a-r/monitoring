@@ -1,41 +1,57 @@
 package main
 
 import (
-	goflag "flag"
+	"flag"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 
 	"github.com/e-l-l-a-r/monitoring/internal/handler"
-	flag "github.com/spf13/pflag"
+	"github.com/spf13/pflag"
 )
 
-var flagRunAddr *string = flag.StringP("address", "a", "localhost:8080", "address and port to run server")
+type config struct {
+	address string
+}
 
 func parseFlags() {
-	flag.CommandLine.AddGoFlagSet(goflag.CommandLine)
+	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
 
-	flag.Usage = func() {
-		fmt.Fprintf(flag.CommandLine.Output(), "Metrics collecting server\nUsage of %s:\n", os.Args[0])
-		flag.PrintDefaults()
+	pflag.Usage = func() {
+		fmt.Fprintf(pflag.CommandLine.Output(), "Metrics collecting server\nUsage of %s:\n", os.Args[0])
+		pflag.PrintDefaults()
 	}
 
-	flag.Parse()
+	pflag.Parse()
+}
+
+func get_config() (result config) {
+	var flagRunAddr *string = pflag.StringP("address", "a", "localhost:8080",
+		"address and port to run server")
+
+	parseFlags()
+
+	result = config{
+		*flagRunAddr,
+	}
+
+	return
 }
 
 func main() {
 	if err := run(); err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 }
 
 func run() error {
-	parseFlags()
-	fmt.Println("Running server on", *flagRunAddr)
+	conf := get_config()
+	log.Println("Running server on ", conf.address)
 	router := handler.GetRouter()
-	err := http.ListenAndServe(*flagRunAddr, router)
+	err := http.ListenAndServe(conf.address, router)
 	if err != nil {
-		panic(err)
+		return err
 	}
 	return nil
 }
