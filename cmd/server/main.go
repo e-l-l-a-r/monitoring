@@ -7,12 +7,13 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/caarlos0/env/v6"
 	"github.com/e-l-l-a-r/monitoring/internal/handler"
 	"github.com/spf13/pflag"
 )
 
-type config struct {
-	address string
+type Config struct {
+	Address string `env:"ADDRESS"`
 }
 
 func parseFlags() {
@@ -26,14 +27,20 @@ func parseFlags() {
 	pflag.Parse()
 }
 
-func get_config() (result config) {
+func get_config() (result Config) {
 	var flagRunAddr *string = pflag.StringP("address", "a", "localhost:8080",
 		"address and port to run server")
 
+	err := env.Parse(&result)
+
+	if err != nil {
+		log.Println(err)
+	}
+
 	parseFlags()
 
-	result = config{
-		*flagRunAddr,
+	if result.Address == "" {
+		result.Address = *flagRunAddr
 	}
 
 	return
@@ -47,9 +54,9 @@ func main() {
 
 func run() error {
 	conf := get_config()
-	log.Println("Running server on ", conf.address)
+	log.Println("Running server on ", conf.Address)
 	router := handler.GetRouter()
-	err := http.ListenAndServe(conf.address, router)
+	err := http.ListenAndServe(conf.Address, router)
 	if err != nil {
 		return err
 	}

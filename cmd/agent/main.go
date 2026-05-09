@@ -9,14 +9,15 @@ import (
 	"os"
 	"time"
 
+	"github.com/caarlos0/env/v6"
 	"github.com/e-l-l-a-r/monitoring/internal/agent"
 	"github.com/spf13/pflag"
 )
 
 type config struct {
-	address        string
-	pollInterval   uint
-	reportInterval uint
+	Address        string `env:"ADDRESS"`
+	PollInterval   uint   `env:"POLL_INTERVAL"`
+	ReportInterval uint   `env:"REPORT_INTERVAL"`
 }
 
 func parseFlags() {
@@ -38,12 +39,23 @@ func get_config() (result config) {
 	var reportInterval *uint = pflag.UintP("report-interval", "r", 10,
 		"number of seconds to send metrics to server")
 
+	err := env.Parse(&result)
+	if err != nil {
+		log.Println(err)
+	}
+
 	parseFlags()
 
-	result = config{
-		*flagRunAddr,
-		*pollInterval,
-		*reportInterval,
+	if result.Address == "" {
+		result.Address = *flagRunAddr
+	}
+
+	if result.PollInterval == 0 {
+		result.PollInterval = *pollInterval
+	}
+
+	if result.ReportInterval == 0 {
+		result.ReportInterval = *reportInterval
 	}
 
 	return
@@ -54,9 +66,9 @@ func main() {
 
 	conf := get_config()
 
-	log.Println("Connect to server ", conf.address)
-	log.Println("pollInterval: ", conf.pollInterval)
-	log.Println("reportInterval: ", conf.reportInterval)
+	log.Println("Connect to server ", conf.Address)
+	log.Println("pollInterval: ", conf.PollInterval)
+	log.Println("reportInterval: ", conf.ReportInterval)
 
 	mon := agent.NewDataCollector()
 	client := http.Client{
@@ -66,9 +78,9 @@ func main() {
 	for {
 		mon.UpdMetrics()
 		// отправляем данные только по достижении счетчиком заданного значения
-		if counter*conf.pollInterval >= conf.reportInterval {
+		if counter*conf.PollInterval >= conf.ReportInterval {
 			for key, val := range mon.GetValues() {
-				url := fmt.Sprintf("http://%s/update/%s/%s/%f", conf.address, val.MType, key, *val.Value)
+				url := fmt.Sprintf("http://%s/update/%s/%s/%f", conf.Address, val.MType, key, *val.Value)
 				request, err := http.NewRequest(http.MethodPost, url, nil)
 				if err != nil {
 					log.Println(err)
@@ -90,7 +102,7 @@ func main() {
 			fmt.Println("All sent")
 			counter = 0
 		}
-		time.Sleep(time.Duration(conf.pollInterval) * time.Second)
+		time.Sleep(time.Duration(conf.PollInterval) * time.Second)
 		counter += 1
 	}
 }
