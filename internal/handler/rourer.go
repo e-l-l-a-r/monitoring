@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/e-l-l-a-r/monitoring/internal/logger"
 	"github.com/e-l-l-a-r/monitoring/internal/repository"
 	"github.com/go-chi/chi/v5"
 )
@@ -104,15 +105,15 @@ func GetRouter() *chi.Mux {
 	rtr = chi.NewRouter()
 	storage := repository.NewMemStorage()
 
-	rtr.Get("/", listMetrics(storage))
-	rtr.Post("/", incorrectApi)
+	rtr.Get("/", logger.ServerRequestLogger(listMetrics(storage)))
+	rtr.Post("/", logger.ServerRequestLogger(incorrectApi))
 
-	rtr.Post("/update/", incorrectApi)
-	rtr.Post("/update/{mtype}/", notFound)
-	rtr.Post("/update/{mtype}/{name}/", badRequest)
-	rtr.Post("/update/{mtype}/{name}/{val}", updMetric(storage))
+	rtr.Post("/update/", logger.ServerRequestLogger(incorrectApi))
+	rtr.Post("/update/{mtype}/", logger.ServerRequestLogger(notFound))
+	rtr.Post("/update/{mtype}/{name}/", logger.ServerRequestLogger(badRequest))
+	rtr.Post("/update/{mtype}/{name}/{val}", logger.ServerRequestLogger(updMetric(storage)))
 
-	rtr.Get("/value/{mtype}/{name}", getMetric(storage))
+	rtr.Get("/value/{mtype}/{name}", logger.ServerRequestLogger(getMetric(storage)))
 
 	return rtr
 }
