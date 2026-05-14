@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"net/http"
@@ -91,12 +93,16 @@ func main() {
 		// отправляем данные только по достижении счетчиком заданного значения
 		if counter*conf.PollInterval >= conf.ReportInterval {
 			for key, val := range mon.GetValues() {
-				url := fmt.Sprintf("http://%s/update/%s/%s/%f", conf.Address, val.MType, key, *val.Value)
-				request, err := http.NewRequest(http.MethodPost, url, nil)
+				url := fmt.Sprintf("http://%s/update/", conf.Address)
+				data, err := json.Marshal(val)
+				if err != nil {
+					panic(err)
+				}
+				request, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(data))
 				if err != nil {
 					log.WarnMsg(err)
 				}
-				request.Header.Set("Content-Type", "text/plain")
+				request.Header.Set("Content-Type", "application/json")
 
 				_, err = log.DoRequestWithLog(&client, request)
 				if err == nil {

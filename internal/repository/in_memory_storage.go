@@ -1,8 +1,10 @@
 package repository
 
 import (
+	"encoding/json"
 	"fmt"
 
+	"github.com/e-l-l-a-r/monitoring/internal/logger"
 	"github.com/e-l-l-a-r/monitoring/internal/model"
 )
 
@@ -32,7 +34,7 @@ func NewMemStorage() *MemStorage {
 	}
 }
 
-func (ms *MemStorage) AddData(name string, mtype string, value float64) error {
+func (ms *MemStorage) AddData(name string, mtype string, value interface{}) error {
 	val, ok := ms.Metrics[name]
 	if ok {
 		if val.MType != mtype {
@@ -40,21 +42,69 @@ func (ms *MemStorage) AddData(name string, mtype string, value float64) error {
 		}
 		switch val.MType {
 		case model.Counter:
-			*val.Value += value
+			counterValue, ok := value.(int64)
+			if !ok {
+				return fmt.Errorf("Invalid value type for Counter: expected int64")
+			}
+			*val.Delta += counterValue
 		case model.Gauge:
-			*val.Value = value
+			gaugeValue, ok := value.(float64)
+			if !ok {
+				return fmt.Errorf("Invalid value type for Gauge: expected float64")
+			}
+			*val.Value = gaugeValue
 		}
 		return nil
 	}
+
 	if !isValidMetricType(mtype) {
 		return fmt.Errorf("Invalid type")
 	}
 
-	ms.Metrics[name] = model.Metrics{
-		ID:    name,
-		MType: mtype,
-		Value: &value,
+	switch newVal := value.(type) {
+	case int64:
+		if mtype == model.Counter {
+			ms.Metrics[name] = model.NewCounterMetrics(name, newVal)
+		} else {
+			return fmt.Errorf("Invalid value type for Counter: expected int64")
+		}
+	case float64:
+		if mtype == model.Gauge {
+			ms.Metrics[name] = model.NewGaugeMetrics(name, newVal)
+		} else {
+			return fmt.Errorf("Invalid value type for Gauge: expected float64")
+		}
+	default:
+		return fmt.Errorf("Unsupported value type: expected int64 or float64")
 	}
+
+	return nil
+}
+
+func (ms *MemStorage) AddMetricData(metric model.Metrics) error {
+	val, ok := ms.Metrics[metric.ID]
+	if ok {
+		if val.MType != metric.MType {
+			return fmt.Errorf("Type mismatch")
+		}
+		before, _ := json.Marshal(val)
+		switch val.MType {
+		case model.Counter:
+			*val.Delta += *metric.Delta
+		case model.Gauge:
+			*val.Value = *metric.Value
+		}
+		after, _ := json.Marshal(val)
+		logger.Info("Metric changed: ", string(before), " -> ", string(after))
+		return nil
+	}
+	if !isValidMetricType(metric.MType) {
+		return fmt.Errorf("Invalid type")
+	}
+
+	ms.Metrics[metric.ID] = metric
+	str, _ := json.Marshal(metric)
+	logger.Info("Add metric: ", string(str))
 	return nil
 }
 
@@ -74,5 +124,25 @@ func (ms *MemStorage) GetValue(name string, mtype string) (float64, error) {
 	if val.MType != mtype {
 		return 0, &TypeMismatchError{name}
 	}
-	return *val.Value, nil
+	switch mtype {
+	case model.Gauge:
+		return *val.Value, nil
+	case model.Counter:
+		return float64(*val.Delta), nil
+	}
+	return 0, nil
+}
+
+func (ms *MemStorage) GetMetricValue(metric *model.Metrics) error {
+	val, ok := ms.Metrics[metric.ID]
+	if !ok {
+		*metric = model.NewMetrics(metric.ID, metric.MType)
+		return &MetricNotFoundError{metric.ID}
+	}
+	if val.MType != metric.MType {
+		*metric = model.NewMetrics(metric.ID, metric.MType)
+		return &TypeMismatchError{metric.ID}
+	}
+	*metric = val
+	return nil
 }

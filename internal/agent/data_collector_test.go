@@ -9,14 +9,14 @@ import (
 func TestDataCollector_UpdMetrics(t *testing.T) {
 	tests := []struct {
 		name string
-		val  float64
+		val  int64
 	}{
-		{"first", 1.0},
-		{"second", 2.0},
-		{"third", 3.0},
-		{"fourth", 4.0},
-		{"fifth", 1.0},
-		{"after_send", 2.0},
+		{"first", 1},
+		{"second", 2},
+		{"third", 3},
+		{"fourth", 4},
+		{"fifth", 1},
+		{"after_send", 2},
 	}
 	rnd := 2.0
 	dc := NewDataCollector()
@@ -26,10 +26,10 @@ func TestDataCollector_UpdMetrics(t *testing.T) {
 			for _, metric := range dc.metrics {
 				switch metric.ID {
 				case "PollCount":
-					assert.Equal(t, tt.val, *metric.Value)
+					assert.Equal(t, tt.val, *metric.Delta)
 					if tt.val == 4.0 {
 						vals := dc.GetValues()
-						assert.Equal(t, tt.val, *vals["PollCount"].Value)
+						assert.Equal(t, tt.val, *vals["PollCount"].Delta)
 						dc.OnSuccessSent("PollCount")
 					}
 				case "RandomValue":

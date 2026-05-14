@@ -2,6 +2,7 @@ package logger
 
 import (
 	"fmt"
+	"io"
 	console "log"
 	"net/http"
 	"time"
@@ -104,12 +105,13 @@ func (l *logger) DoRequestWithLog(c *http.Client, req *http.Request) (resp *http
 	if err != nil {
 		l.WarnMsg(err)
 	} else if resp.StatusCode != http.StatusOK {
-		l.InfoMsg("url:", req.URL, "\tstatus code:", resp.StatusCode, "Body", resp.Body)
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		l.InfoMsg("url:", req.URL, "\tstatus code:", resp.StatusCode, "Body", string(bodyBytes))
 		err = fmt.Errorf("status code: %d", resp.StatusCode)
 		//io.Copy(os.Stdout, resp.Body)
 		resp.Body.Close()
 	} else {
-		l.InfoMsg("Sent: ", req.URL)
+		l.InfoMsg("Sent: ", req.URL, "Data: ", req.Body)
 	}
 	return
 }

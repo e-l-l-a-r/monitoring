@@ -18,10 +18,31 @@ type Metrics struct {
 	Hash  string   `json:"hash,omitempty"`
 }
 
-func NewMetrics(name string, mtype string, value float64) Metrics {
+func NewCounterMetrics(name string, value int64) Metrics {
+	return Metrics{
+		ID:    name,
+		MType: Counter,
+		Delta: &value,
+	}
+}
+
+func NewGaugeMetrics(name string, value float64) Metrics {
+	return Metrics{
+		ID:    name,
+		MType: Gauge,
+		Value: &value,
+	}
+}
+
+func NewMetrics(name string, mtype string) Metrics {
+	switch mtype {
+	case Counter:
+		return NewCounterMetrics(name, 0)
+	case Gauge:
+		return NewGaugeMetrics(name, 0)
+	}
 	return Metrics{
 		ID:    name,
 		MType: mtype,
-		Value: &value,
 	}
 }
