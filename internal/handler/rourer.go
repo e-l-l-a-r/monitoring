@@ -110,13 +110,12 @@ var (
 	rtr             *chi.Mux
 )
 
-func GetRouter() *chi.Mux {
+func GetRouter(storage *repository.MemStorage) *chi.Mux {
 	if routesInstalled {
 		return rtr // Return existing router
 	}
 	routesInstalled = true
 	rtr = chi.NewRouter()
-	storage := repository.NewMemStorage()
 
 	rtr.Get("/", logger.ServerRequestLogger(listMetrics(storage)))
 	rtr.Post("/", logger.ServerRequestLogger(incorrectApi))
@@ -154,6 +153,8 @@ func updMetric(storage *repository.MemStorage) http.HandlerFunc {
 			return
 		}
 
+		storage.SynkIfNeed()
+
 		resp.Write([]byte(""))
 	}
 
@@ -179,6 +180,8 @@ func updJsonMetric(storage *repository.MemStorage) http.HandlerFunc {
 			http.Error(resp, err.Error(), http.StatusBadRequest)
 			return
 		}
+
+		storage.SynkIfNeed()
 
 		resp.Write([]byte(""))
 	}

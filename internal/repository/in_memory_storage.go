@@ -3,6 +3,8 @@ package repository
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"time"
 
 	"github.com/e-l-l-a-r/monitoring/internal/logger"
 	"github.com/e-l-l-a-r/monitoring/internal/model"
@@ -25,12 +27,18 @@ func (e *TypeMismatchError) Error() string {
 }
 
 type MemStorage struct {
-	Metrics map[string]model.Metrics
+	Metrics      map[string]model.Metrics
+	lastSyncTime time.Time
+	SyncInterval uint
+	SyncFileName string
 }
 
-func NewMemStorage() *MemStorage {
+func NewMemStorage(SyncInterval uint, SyncFileName string) *MemStorage {
 	return &MemStorage{
-		Metrics: make(map[string]model.Metrics),
+		Metrics:      make(map[string]model.Metrics),
+		lastSyncTime: time.Now(),
+		SyncInterval: SyncInterval,
+		SyncFileName: SyncFileName,
 	}
 }
 
@@ -144,5 +152,49 @@ func (ms *MemStorage) GetMetricValue(metric *model.Metrics) error {
 		return &TypeMismatchError{metric.ID}
 	}
 	*metric = val
+	return nil
+}
+
+func (ms *MemStorage) syncToFile() error {
+	file, err := os.OpenFile(ms.SyncFileName, os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		logger.Warn("Error opening file ", ms.SyncFileName, ": ", err)
+		return err
+	}
+	defer file.Close()
+	enc := json.NewEncoder(file)
+
+	err = enc.Encode(ms.Metrics)
+	if err != nil {
+		logger.Warn("Error saving data to ", ms.SyncFileName, ": ", err)
+		return err
+	}
+
+	return nil
+}
+
+func (ms *MemStorage) RestoreFromFile() error {
+	file, err := os.OpenFile(ms.SyncFileName, os.O_CREATE|os.O_RDONLY, 0644)
+	if err != nil {
+		logger.Warn("Error opening file ", ms.SyncFileName, ": ", err)
+		return err
+	}
+	defer file.Close()
+	dec := json.NewDecoder(file)
+	if err := dec.Decode(&ms.Metrics); err != nil {
+		logger.Warn("Error while restoring data from ", ms.SyncFileName, ": ", err)
+		return err
+	}
+	return nil
+}
+
+func (ms *MemStorage) SynkIfNeed() error {
+	if uint(time.Since(ms.lastSyncTime).Seconds()) >= ms.SyncInterval {
+		err := ms.syncToFile()
+		if err == nil {
+			ms.lastSyncTime = time.Now()
+		}
+		return err
+	}
 	return nil
 }
