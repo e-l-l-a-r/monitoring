@@ -52,12 +52,22 @@ func listMetrics(storage *repository.MemStorage) http.HandlerFunc {
 
 		rows := make([]MetricRow, 0, len(storage.GetValues()))
 		for _, metric := range storage.GetValues() {
+			if metric.MType == model.Counter {
+				rows = append(rows, MetricRow{
+					Name:  metric.ID,
+					Type:  metric.MType,
+					Value: float64(*metric.Delta),
+				})
+				continue
+			}
 			rows = append(rows, MetricRow{
 				Name:  metric.ID,
 				Type:  metric.MType,
 				Value: *metric.Value,
 			})
 		}
+
+		resp.Header().Set("Content-Type", "text/html")
 
 		err = tmpl.Execute(resp, rows)
 		if err != nil {

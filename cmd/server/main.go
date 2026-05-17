@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/caarlos0/env/v6"
+	"github.com/e-l-l-a-r/monitoring/internal/compressor"
 	"github.com/e-l-l-a-r/monitoring/internal/handler"
 	"github.com/e-l-l-a-r/monitoring/internal/logger"
 	"github.com/spf13/pflag"
@@ -67,7 +68,7 @@ func run() error {
 
 	log.InfoMsg("Running server on ", conf.Address)
 	router := handler.GetRouter()
-	err = http.ListenAndServe(conf.Address, router)
+	err = http.ListenAndServe(conf.Address, compressor.GzipHandle(router))
 	if err != nil {
 		return err
 	}
