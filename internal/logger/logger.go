@@ -30,13 +30,13 @@ type (
 )
 
 // Глобальная переменная для реализации работы логгера - синглтона
-var single_logger *logger
+var singleLogger *logger
 
 func GetLogger() (*logger, error) {
-	if single_logger == nil {
-		return nil, fmt.Errorf("No logger inited")
+	if singleLogger == nil {
+		return nil, fmt.Errorf("no logger inited")
 	}
-	return single_logger, nil
+	return singleLogger, nil
 }
 
 func InitLogger(level string) (*logger, error) {
@@ -54,7 +54,7 @@ func InitLogger(level string) (*logger, error) {
 	if err != nil {
 		return nil, err
 	}
-	single_logger = &logger{
+	singleLogger = &logger{
 		*log,
 	}
 	return GetLogger()
@@ -133,33 +133,33 @@ func (l *logger) WarnMsg(args ...interface{}) {
 }
 
 func ServerRequestLogger(h http.HandlerFunc) http.HandlerFunc {
-	if single_logger != nil {
-		return single_logger.ServerRequestLogger(h)
-	} else {
-		console.Println("No logger inited to process request")
-		return h
+	if singleLogger != nil {
+		return singleLogger.ServerRequestLogger(h)
 	}
+
+	console.Println("No logger inited to process request")
+	return h
 }
 
 func Fatal(args ...interface{}) {
-	if single_logger != nil {
-		single_logger.Sugar().Fatalln(args)
+	if singleLogger != nil {
+		singleLogger.Sugar().Fatalln(args)
 	} else {
 		console.Fatal(args...)
 	}
 }
 
 func Warn(args ...interface{}) {
-	if single_logger != nil {
-		single_logger.Sugar().Warnln(args)
+	if singleLogger != nil {
+		singleLogger.Sugar().Warnln(args)
 	} else {
 		console.Println(args...)
 	}
 }
 
 func Info(args ...interface{}) {
-	if single_logger != nil {
-		single_logger.Sugar().Infoln(args)
+	if singleLogger != nil {
+		singleLogger.Sugar().Infoln(args)
 	} else {
 		console.Println(args...)
 	}

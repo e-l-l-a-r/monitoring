@@ -46,19 +46,19 @@ func (ms *MemStorage) AddData(name string, mtype string, value interface{}) erro
 	val, ok := ms.Metrics[name]
 	if ok {
 		if val.MType != mtype {
-			return fmt.Errorf("Type mismatch")
+			return fmt.Errorf("type mismatch")
 		}
 		switch val.MType {
 		case model.Counter:
 			counterValue, ok := value.(int64)
 			if !ok {
-				return fmt.Errorf("Invalid value type for Counter: expected int64")
+				return fmt.Errorf("invalid value type for Counter: expected int64")
 			}
 			*val.Delta += counterValue
 		case model.Gauge:
 			gaugeValue, ok := value.(float64)
 			if !ok {
-				return fmt.Errorf("Invalid value type for Gauge: expected float64")
+				return fmt.Errorf("invalid value type for Gauge: expected float64")
 			}
 			*val.Value = gaugeValue
 		}
@@ -66,7 +66,7 @@ func (ms *MemStorage) AddData(name string, mtype string, value interface{}) erro
 	}
 
 	if !isValidMetricType(mtype) {
-		return fmt.Errorf("Invalid type")
+		return fmt.Errorf("invalid type")
 	}
 
 	switch newVal := value.(type) {
@@ -74,16 +74,16 @@ func (ms *MemStorage) AddData(name string, mtype string, value interface{}) erro
 		if mtype == model.Counter {
 			ms.Metrics[name] = model.NewCounterMetrics(name, newVal)
 		} else {
-			return fmt.Errorf("Invalid value type for Counter: expected int64")
+			return fmt.Errorf("invalid value type for Counter: expected int64")
 		}
 	case float64:
 		if mtype == model.Gauge {
 			ms.Metrics[name] = model.NewGaugeMetrics(name, newVal)
 		} else {
-			return fmt.Errorf("Invalid value type for Gauge: expected float64")
+			return fmt.Errorf("invalid value type for Gauge: expected float64")
 		}
 	default:
-		return fmt.Errorf("Unsupported value type: expected int64 or float64")
+		return fmt.Errorf("unsupported value type: expected int64 or float64")
 	}
 
 	return nil
@@ -93,7 +93,7 @@ func (ms *MemStorage) AddMetricData(metric model.Metrics) error {
 	val, ok := ms.Metrics[metric.ID]
 	if ok {
 		if val.MType != metric.MType {
-			return fmt.Errorf("Type mismatch")
+			return fmt.Errorf("type mismatch")
 		}
 		before, _ := json.Marshal(val)
 		switch val.MType {
@@ -107,7 +107,7 @@ func (ms *MemStorage) AddMetricData(metric model.Metrics) error {
 		return nil
 	}
 	if !isValidMetricType(metric.MType) {
-		return fmt.Errorf("Invalid type")
+		return fmt.Errorf("invalid type")
 	}
 
 	ms.Metrics[metric.ID] = metric
@@ -188,7 +188,7 @@ func (ms *MemStorage) RestoreFromFile() error {
 	return nil
 }
 
-func (ms *MemStorage) SynkIfNeed() error {
+func (ms *MemStorage) SyncIfNeed() error {
 	if uint(time.Since(ms.lastSyncTime).Seconds()) >= ms.SyncInterval {
 		err := ms.syncToFile()
 		if err == nil {

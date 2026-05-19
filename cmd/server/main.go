@@ -33,16 +33,16 @@ func parseFlags() {
 	pflag.Parse()
 }
 
-func get_config() (result Config) {
-	var flagRunAddr *string = pflag.StringP("address", "a", "localhost:8080",
+func getConfig() (result Config) {
+	var flagRunAddr = pflag.StringP("address", "a", "localhost:8080",
 		"address and port to run server")
-	var flagLogLevel *string = pflag.StringP("log-level", "l", "Info",
+	var flagLogLevel = pflag.StringP("log-level", "l", "Info",
 		"log level, may be Debug, Info (default), Warning, Error")
-	var flagStoreInterval *uint = pflag.UintP("store-interval", "i", 300,
+	var flagStoreInterval = pflag.UintP("store-interval", "i", 300,
 		"number of seconds to store metrics to file, zero value for sync write")
-	var flagFileStoragePath *string = pflag.StringP("file-storage-path", "f", "metrics.json",
+	var flagFileStoragePath = pflag.StringP("file-storage-path", "f", "metrics.json",
 		"file to store metrics")
-	var flagRestore *bool = pflag.BoolP("restore", "r", false,
+	var flagRestore = pflag.BoolP("restore", "r", false,
 		"restore metrics from file")
 
 	err := env.Parse(&result)
@@ -79,7 +79,7 @@ func main() {
 }
 
 func run() error {
-	conf := get_config()
+	conf := getConfig()
 	log, err := logger.InitLogger(conf.LogLevel)
 
 	if err != nil {
@@ -105,7 +105,7 @@ func run() error {
 		for {
 			select {
 			case <-syncTicker.C:
-				if err := storage.SynkIfNeed(); err != nil {
+				if err := storage.SyncIfNeed(); err != nil {
 					log.WarnMsg("Error during periodic sync:", err)
 				}
 			}

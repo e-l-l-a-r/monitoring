@@ -1,6 +1,7 @@
 package compressor
 
 import (
+	"bytes"
 	"compress/gzip"
 	"io"
 	"net/http"
@@ -55,8 +56,28 @@ func GzipHandle(next http.Handler) http.Handler {
 			originalSize:   0,
 			compressedSize: 0,
 		}
-		gz_wr := gzipWriter{ResponseWriter: w, Writer: gz, Info: info}
-		next.ServeHTTP(gz_wr, r)
-		logger.Info("Send GZIPped response with size:", gz_wr.Info.compressedSize)
+		gzWr := gzipWriter{ResponseWriter: w, Writer: gz, Info: info}
+		next.ServeHTTP(gzWr, r)
+		logger.Info("Send GZIPped response with size:", gzWr.Info.compressedSize)
 	})
+}
+
+func NewGzippedReader(data []byte) (io.Reader, error) {
+	reader, err := gzip.NewReader(bytes.NewReader(data))
+	if err != nil {
+		return bytes.NewReader(data), err
+	}
+	return reader, nil
+}
+
+func RequesrReader(req *http.Request) (io.Reader, error) {
+	if req.Header.Get("Content-Encoding") == "gzip" {
+		gz, err := gzip.NewReader(req.Body)
+		if err != nil {
+			logger.Info("cannot unzip request body: ", err)
+			return nil, err
+		}
+		return gz, nil
+	}
+	return req.Body, nil
 }

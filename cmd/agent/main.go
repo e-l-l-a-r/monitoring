@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/caarlos0/env/v6"
 	"github.com/e-l-l-a-r/monitoring/internal/agent"
+	"github.com/e-l-l-a-r/monitoring/internal/compressor"
 	"github.com/e-l-l-a-r/monitoring/internal/logger"
 	"github.com/spf13/pflag"
 )
@@ -33,14 +33,14 @@ func parseFlags() {
 	pflag.Parse()
 }
 
-func get_config() (result config) {
-	var flagRunAddr *string = pflag.StringP("address", "a", "localhost:8080",
+func getConfig() (result config) {
+	var flagRunAddr = pflag.StringP("address", "a", "localhost:8080",
 		"address and port of server to connect")
-	var pollInterval *uint = pflag.UintP("poll-interval", "p", 2,
+	var pollInterval = pflag.UintP("poll-interval", "p", 2,
 		"number of seconds to update metrics")
-	var reportInterval *uint = pflag.UintP("report-interval", "r", 10,
+	var reportInterval = pflag.UintP("report-interval", "r", 10,
 		"number of seconds to send metrics to server")
-	var flagLogLevel *string = pflag.StringP("log-level", "l", "Info",
+	var flagLogLevel = pflag.StringP("log-level", "l", "Info",
 		"log level, may be Debug, Info (default), Warning, Error")
 
 	err := env.Parse(&result)
@@ -72,7 +72,7 @@ func get_config() (result config) {
 func main() {
 	var counter uint // счетчик не может быть меньше нуля
 
-	conf := get_config()
+	conf := getConfig()
 	log, err := logger.InitLogger(conf.LogLevel)
 
 	if err != nil {
@@ -98,11 +98,20 @@ func main() {
 				if err != nil {
 					panic(err)
 				}
-				request, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(data))
+				isCompressed := true
+				reader, err := compressor.NewGzippedReader(data)
+				if err != nil {
+					log.WarnMsg("error while compressing data: ", err, ". Send uncompressed.")
+					isCompressed = false
+				}
+				request, err := http.NewRequest(http.MethodPost, url, reader)
 				if err != nil {
 					log.WarnMsg(err)
 				}
 				request.Header.Set("Content-Type", "application/json")
+				if isCompressed {
+					request.Header.Set("Content-Encoding", "gzip")
+				}
 
 				_, err = log.DoRequestWithLog(&client, request)
 				if err == nil {

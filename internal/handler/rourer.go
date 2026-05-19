@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/e-l-l-a-r/monitoring/internal/compressor"
 	"github.com/e-l-l-a-r/monitoring/internal/logger"
 	"github.com/e-l-l-a-r/monitoring/internal/model"
 	"github.com/e-l-l-a-r/monitoring/internal/repository"
@@ -153,7 +154,7 @@ func updMetric(storage *repository.MemStorage) http.HandlerFunc {
 			return
 		}
 
-		storage.SynkIfNeed()
+		storage.SyncIfNeed()
 
 		resp.Write([]byte(""))
 	}
@@ -164,7 +165,13 @@ func updJsonMetric(storage *repository.MemStorage) http.HandlerFunc {
 	return func(resp http.ResponseWriter, req *http.Request) {
 
 		var metric model.Metrics
-		dec := json.NewDecoder(req.Body)
+
+		dataReader, err := compressor.RequesrReader(req)
+		if err != nil {
+			http.Error(resp, err.Error(), http.StatusBadRequest)
+			return
+		}
+		dec := json.NewDecoder(dataReader)
 
 		if err := dec.Decode(&metric); err != nil {
 			http.Error(resp, "Incorrect value", http.StatusBadRequest)
@@ -175,13 +182,13 @@ func updJsonMetric(storage *repository.MemStorage) http.HandlerFunc {
 		str, _ := json.Marshal(metric)
 		logger.Info("Update metric: ", string(str))
 
-		err := storage.AddMetricData(metric)
+		err = storage.AddMetricData(metric)
 		if err != nil {
 			http.Error(resp, err.Error(), http.StatusBadRequest)
 			return
 		}
 
-		storage.SynkIfNeed()
+		storage.SyncIfNeed()
 
 		resp.Write([]byte(""))
 	}

@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-var ms *MemStorage = NewMemStorage()
+var ms = NewMemStorage(0, "test_metrics.json")
 
 func TestMemStorage_GoodGaugeCases(t *testing.T) {
 
@@ -67,8 +67,8 @@ func TestMemStorage_BadCases(t *testing.T) {
 		val      float64
 		expected string
 	}{
-		{"Add incorrect type", "cnt", model.Gauge, 1.0, "Type mismatch"},
-		{"Add wrong type", "bad", "bad", 2.0, "Invalid type"},
+		{"Add incorrect type", "cnt", model.Gauge, 1.0, "type mismatch"},
+		{"Add wrong type", "bad", "bad", 2.0, "invalid type"},
 	}
 
 	for _, tt := range tests {
@@ -96,13 +96,13 @@ func TestAddMetricData(t *testing.T) {
 			metric: model.Metrics{
 				ID:    "test_gauge",
 				MType: model.Gauge,
-				Value: func() *float64 { v := 3.14; return &v }(),
+				Value: func() *float64 { ; return new(3.14) }(),
 			},
 			expected: map[string]model.Metrics{
 				"test_gauge": {
 					ID:    "test_gauge",
 					MType: model.Gauge,
-					Value: func() *float64 { v := 3.14; return &v }(),
+					Value: func() *float64 { ; return new(3.14) }(),
 				},
 			},
 			err: nil,
@@ -113,19 +113,19 @@ func TestAddMetricData(t *testing.T) {
 				"test_gauge": {
 					ID:    "test_gauge",
 					MType: model.Gauge,
-					Value: func() *float64 { v := 1.0; return &v }(),
+					Value: func() *float64 { ; return new(1.0) }(),
 				},
 			},
 			metric: model.Metrics{
 				ID:    "test_gauge",
 				MType: model.Gauge,
-				Value: func() *float64 { v := 2.5; return &v }(),
+				Value: func() *float64 { ; return new(2.5) }(),
 			},
 			expected: map[string]model.Metrics{
 				"test_gauge": {
 					ID:    "test_gauge",
 					MType: model.Gauge,
-					Value: func() *float64 { v := 2.5; return &v }(),
+					Value: func() *float64 { ; return new(2.5) }(),
 				},
 			},
 			err: nil,
@@ -136,19 +136,19 @@ func TestAddMetricData(t *testing.T) {
 				"test_counter": {
 					ID:    "test_counter",
 					MType: model.Counter,
-					Delta: func() *int64 { v := int64(10); return &v }(),
+					Delta: func() *int64 { ; return new(int64(10)) }(),
 				},
 			},
 			metric: model.Metrics{
 				ID:    "test_counter",
 				MType: model.Counter,
-				Delta: func() *int64 { d := int64(32); return &d }(),
+				Delta: func() *int64 { ; return new(int64(32)) }(),
 			},
 			expected: map[string]model.Metrics{
 				"test_counter": {
 					ID:    "test_counter",
 					MType: model.Counter,
-					Delta: func() *int64 { v := int64(42); return &v }(),
+					Delta: func() *int64 { ; return new(int64(42)) }(),
 				},
 			},
 			err: nil,
@@ -159,22 +159,22 @@ func TestAddMetricData(t *testing.T) {
 				"test_metric": {
 					ID:    "test_metric",
 					MType: model.Gauge,
-					Value: func() *float64 { v := 1.0; return &v }(),
+					Value: func() *float64 { ; return new(1.0) }(),
 				},
 			},
 			metric: model.Metrics{
 				ID:    "test_metric",
 				MType: model.Counter,
-				Delta: func() *int64 { d := int64(5); return &d }(),
+				Delta: func() *int64 { ; return new(int64(5)) }(),
 			},
 			expected: map[string]model.Metrics{
 				"test_metric": {
 					ID:    "test_metric",
 					MType: model.Gauge,
-					Value: func() *float64 { v := 1.0; return &v }(),
+					Value: func() *float64 { ; return new(1.0) }(),
 				},
 			},
-			err: errors.New("Type mismatch"),
+			err: errors.New("type mismatch"),
 		},
 		{
 			name:    "Invalid metric type",
@@ -182,10 +182,10 @@ func TestAddMetricData(t *testing.T) {
 			metric: model.Metrics{
 				ID:    "invalid",
 				MType: "invalid_type",
-				Value: func() *float64 { v := 0.0; return &v }(),
+				Value: func() *float64 { ; return new(0.0) }(),
 			},
 			expected: map[string]model.Metrics{},
-			err:      errors.New("Invalid type"),
+			err:      errors.New("invalid type"),
 		},
 	}
 
@@ -223,7 +223,7 @@ func TestGetMetricValue(t *testing.T) {
 				"test_gauge": {
 					ID:    "test_gauge",
 					MType: model.Gauge,
-					Value: func() *float64 { v := 3.14; return &v }(),
+					Value: func() *float64 { ; return new(3.14) }(),
 				},
 			},
 			metric: &model.Metrics{
@@ -233,7 +233,7 @@ func TestGetMetricValue(t *testing.T) {
 			expected: &model.Metrics{
 				ID:    "test_gauge",
 				MType: model.Gauge,
-				Value: func() *float64 { v := 3.14; return &v }(),
+				Value: func() *float64 { ; return new(3.14) }(),
 			},
 			err: nil,
 		},
@@ -243,7 +243,7 @@ func TestGetMetricValue(t *testing.T) {
 				"test_counter": {
 					ID:    "test_counter",
 					MType: model.Counter,
-					Delta: func() *int64 { v := int64(42); return &v }(),
+					Delta: func() *int64 { ; return new(int64(42)) }(),
 				},
 			},
 			metric: &model.Metrics{
@@ -253,7 +253,7 @@ func TestGetMetricValue(t *testing.T) {
 			expected: &model.Metrics{
 				ID:    "test_counter",
 				MType: model.Counter,
-				Delta: func() *int64 { v := int64(42); return &v }(),
+				Delta: func() *int64 { ; return new(int64(42)) }(),
 			},
 			err: nil,
 		},
@@ -263,7 +263,7 @@ func TestGetMetricValue(t *testing.T) {
 				"other_metric": {
 					ID:    "other_metric",
 					MType: model.Gauge,
-					Value: func() *float64 { v := 1.0; return &v }(),
+					Value: func() *float64 { ; return new(1.0) }(),
 				},
 			},
 			metric: &model.Metrics{
@@ -279,7 +279,7 @@ func TestGetMetricValue(t *testing.T) {
 				"test_metric": {
 					ID:    "test_metric",
 					MType: model.Gauge,
-					Value: func() *float64 { v := 1.0; return &v }(),
+					Value: func() *float64 { ; return new(1.0) }(),
 				},
 			},
 			metric: &model.Metrics{
