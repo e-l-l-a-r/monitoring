@@ -1,13 +1,18 @@
 package handler
 
 import (
+	"encoding/json"
 	"errors"
 	"html/template"
 	"net/http"
 	"strconv"
 
+	"github.com/e-l-l-a-r/monitoring/internal/compressor"
+	"github.com/e-l-l-a-r/monitoring/internal/logger"
+	"github.com/e-l-l-a-r/monitoring/internal/model"
 	"github.com/e-l-l-a-r/monitoring/internal/repository"
 	"github.com/go-chi/chi/v5"
+	"go.uber.org/zap"
 )
 
 func listMetrics(storage *repository.MemStorage) http.HandlerFunc {
@@ -48,12 +53,22 @@ func listMetrics(storage *repository.MemStorage) http.HandlerFunc {
 
 		rows := make([]MetricRow, 0, len(storage.GetValues()))
 		for _, metric := range storage.GetValues() {
+			if metric.MType == model.Counter {
+				rows = append(rows, MetricRow{
+					Name:  metric.ID,
+					Type:  metric.MType,
+					Value: float64(*metric.Delta),
+				})
+				continue
+			}
 			rows = append(rows, MetricRow{
 				Name:  metric.ID,
 				Type:  metric.MType,
 				Value: *metric.Value,
 			})
 		}
+
+		resp.Header().Set("Content-Type", "text/html")
 
 		err = tmpl.Execute(resp, rows)
 		if err != nil {
@@ -96,23 +111,24 @@ var (
 	rtr             *chi.Mux
 )
 
-func GetRouter() *chi.Mux {
+func GetRouter(storage *repository.MemStorage) *chi.Mux {
 	if routesInstalled {
 		return rtr // Return existing router
 	}
 	routesInstalled = true
 	rtr = chi.NewRouter()
-	storage := repository.NewMemStorage()
 
-	rtr.Get("/", listMetrics(storage))
-	rtr.Post("/", incorrectApi)
+	rtr.Get("/", logger.ServerRequestLogger(listMetrics(storage)))
+	rtr.Post("/", logger.ServerRequestLogger(incorrectApi))
 
-	rtr.Post("/update/", incorrectApi)
-	rtr.Post("/update/{mtype}/", notFound)
-	rtr.Post("/update/{mtype}/{name}/", badRequest)
-	rtr.Post("/update/{mtype}/{name}/{val}", updMetric(storage))
+	rtr.Post("/update/", logger.ServerRequestLogger(updJsonMetric(storage)))
+	//rtr.Post("/update/", logger.ServerRequestLogger(incorrectApi))
+	rtr.Post("/update/{mtype}/", logger.ServerRequestLogger(notFound))
+	rtr.Post("/update/{mtype}/{name}/", logger.ServerRequestLogger(badRequest))
+	rtr.Post("/update/{mtype}/{name}/{val}", logger.ServerRequestLogger(updMetric(storage)))
 
-	rtr.Get("/value/{mtype}/{name}", getMetric(storage))
+	rtr.Get("/value/{mtype}/{name}", logger.ServerRequestLogger(getMetric(storage)))
+	rtr.Post("/value/", logger.ServerRequestLogger(getJsonMetric(storage)))
 
 	return rtr
 }
@@ -124,13 +140,80 @@ func updMetric(storage *repository.MemStorage) http.HandlerFunc {
 			http.Error(resp, "Incorrect value", http.StatusBadRequest)
 			return
 		}
-		err = storage.AddData(chi.URLParam(req, "name"), chi.URLParam(req, "mtype"), val)
+		switch chi.URLParam(req, "mtype") {
+		case model.Gauge:
+			err = storage.AddData(chi.URLParam(req, "name"), chi.URLParam(req, "mtype"), val)
+		case model.Counter:
+			err = storage.AddData(chi.URLParam(req, "name"), chi.URLParam(req, "mtype"), int64(val))
+		default:
+			http.Error(resp, "Incorrect type", http.StatusBadRequest)
+		}
+		if err != nil {
+			logger.Warn("Update error: ", err.Error())
+			http.Error(resp, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		storage.SyncIfNeed()
+
+		resp.Write([]byte(""))
+	}
+
+}
+
+func updJsonMetric(storage *repository.MemStorage) http.HandlerFunc {
+	return func(resp http.ResponseWriter, req *http.Request) {
+
+		var metric model.Metrics
+
+		dataReader, err := compressor.RequesrReader(req)
+		if err != nil {
+			http.Error(resp, err.Error(), http.StatusBadRequest)
+			return
+		}
+		dec := json.NewDecoder(dataReader)
+
+		if err := dec.Decode(&metric); err != nil {
+			http.Error(resp, "Incorrect value", http.StatusBadRequest)
+			logger.Info("cannot decode request JSON body", zap.Error(err))
+			return
+		}
+
+		str, _ := json.Marshal(metric)
+		logger.Info("Update metric: ", string(str))
+
+		err = storage.AddMetricData(metric)
 		if err != nil {
 			http.Error(resp, err.Error(), http.StatusBadRequest)
 			return
 		}
 
+		storage.SyncIfNeed()
+
 		resp.Write([]byte(""))
 	}
+}
 
+func getJsonMetric(storage *repository.MemStorage) http.HandlerFunc {
+	return func(resp http.ResponseWriter, req *http.Request) {
+
+		var metric model.Metrics
+		dec := json.NewDecoder(req.Body)
+		resp.Header().Set("Content-Type", "application/json")
+
+		if err := dec.Decode(&metric); err != nil {
+			http.Error(resp, "Incorrect value", http.StatusBadRequest)
+			logger.Info("cannot decode request JSON body", zap.Error(err))
+			return
+		}
+
+		storage.GetMetricValue(&metric)
+
+		// сериализуем ответ сервера
+		enc := json.NewEncoder(resp)
+		if err := enc.Encode(metric); err != nil {
+			logger.Info("error encoding response", zap.Error(err))
+			return
+		}
+	}
 }
