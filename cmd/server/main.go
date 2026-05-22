@@ -20,6 +20,7 @@ type Config struct {
 	StoreInterval   uint   `env:"STORE_INTERVAL"`
 	FileStoragePath string `env:"FILE_STORAGE_PATH"`
 	Restore         bool   `env:"RESTORE"`
+	DbConnSrting    string `env:"DATABASE_DSN"`
 }
 
 func parseFlags() {
@@ -44,6 +45,8 @@ func getConfig() (result Config) {
 		"file to store metrics")
 	var flagRestore = pflag.BoolP("restore", "r", false,
 		"restore metrics from file")
+	var flagDbConnSrting = pflag.StringP("db-conn-string", "d", "",
+		"database connection string")
 
 	err := env.Parse(&result)
 
@@ -68,6 +71,9 @@ func getConfig() (result Config) {
 	if result.Restore == false {
 		result.Restore = *flagRestore
 	}
+	if result.DbConnSrting == "" {
+		result.DbConnSrting = *flagDbConnSrting
+	}
 
 	return
 }
@@ -90,11 +96,20 @@ func run() error {
 	log.InfoMsg("Sync data to ", conf.FileStoragePath, " every ", conf.StoreInterval, " seconds.")
 	log.InfoMsg("Restore on startup: ", conf.Restore)
 	log.InfoMsg("==================================")
-	storage := repository.NewMemStorage(conf.StoreInterval, conf.FileStoragePath)
-	if conf.Restore {
-		err := storage.RestoreFromFile()
+	var storage handler.Storage
+	if conf.DbConnSrting != "" {
+		storage, err = repository.NewSqlStorage(conf.DbConnSrting)
 		if err != nil {
-			log.WarnMsg("Error restoring metrics from file", err)
+			log.WarnMsg("Error connecting to database", err)
+		}
+		defer storage.(*repository.SqlStorage).Close()
+	} else {
+		storage = repository.NewMemStorage(conf.StoreInterval, conf.FileStoragePath)
+		if conf.Restore {
+			err := storage.(*repository.MemStorage).RestoreFromFile()
+			if err != nil {
+				log.WarnMsg("Error restoring metrics from file", err)
+			}
 		}
 	}
 
