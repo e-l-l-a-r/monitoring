@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -42,7 +43,7 @@ func NewMemStorage(SyncInterval uint, SyncFileName string) *MemStorage {
 	}
 }
 
-func (ms *MemStorage) AddData(name string, mtype string, value interface{}) error {
+func (ms *MemStorage) AddData(ctx context.Context, name string, mtype string, value interface{}) error {
 	val, ok := ms.Metrics[name]
 	if ok {
 		if val.MType != mtype {
@@ -89,7 +90,7 @@ func (ms *MemStorage) AddData(name string, mtype string, value interface{}) erro
 	return nil
 }
 
-func (ms *MemStorage) AddMetricData(metric model.Metrics) error {
+func (ms *MemStorage) AddMetricData(ctx context.Context, metric model.Metrics) error {
 	val, ok := ms.Metrics[metric.ID]
 	if ok {
 		if val.MType != metric.MType {
@@ -120,11 +121,11 @@ func isValidMetricType(mType string) bool {
 	return mType == model.Counter || mType == model.Gauge
 }
 
-func (ms *MemStorage) GetValues() map[string]model.Metrics {
+func (ms *MemStorage) GetValues(ctx context.Context) map[string]model.Metrics {
 	return ms.Metrics
 }
 
-func (ms *MemStorage) GetValue(name string, mtype string) (float64, error) {
+func (ms *MemStorage) GetValue(ctx context.Context, name string, mtype string) (float64, error) {
 	val, ok := ms.Metrics[name]
 	if !ok {
 		return 0, &MetricNotFoundError{name}
@@ -141,7 +142,7 @@ func (ms *MemStorage) GetValue(name string, mtype string) (float64, error) {
 	return 0, nil
 }
 
-func (ms *MemStorage) GetMetricValue(metric *model.Metrics) error {
+func (ms *MemStorage) GetMetricValue(ctx context.Context, metric *model.Metrics) error {
 	val, ok := ms.Metrics[metric.ID]
 	if !ok {
 		*metric = model.NewMetrics(metric.ID, metric.MType)
@@ -155,7 +156,7 @@ func (ms *MemStorage) GetMetricValue(metric *model.Metrics) error {
 	return nil
 }
 
-func (ms *MemStorage) syncToFile() error {
+func (ms *MemStorage) syncToFile(ctx context.Context) error {
 	file, err := os.OpenFile(ms.SyncFileName, os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		logger.Warn("Error opening file ", ms.SyncFileName, ": ", err)
@@ -173,7 +174,7 @@ func (ms *MemStorage) syncToFile() error {
 	return nil
 }
 
-func (ms *MemStorage) RestoreFromFile() error {
+func (ms *MemStorage) RestoreFromFile(ctx context.Context) error {
 	file, err := os.OpenFile(ms.SyncFileName, os.O_CREATE|os.O_RDONLY, 0644)
 	if err != nil {
 		logger.Warn("Error opening file ", ms.SyncFileName, ": ", err)
@@ -188,9 +189,9 @@ func (ms *MemStorage) RestoreFromFile() error {
 	return nil
 }
 
-func (ms *MemStorage) SyncIfNeed() error {
+func (ms *MemStorage) SyncIfNeed(ctx context.Context) error {
 	if uint(time.Since(ms.lastSyncTime).Seconds()) >= ms.SyncInterval {
-		err := ms.syncToFile()
+		err := ms.syncToFile(ctx)
 		if err == nil {
 			ms.lastSyncTime = time.Now()
 		}

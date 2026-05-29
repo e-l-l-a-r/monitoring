@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"net/http"
 	"os"
@@ -87,6 +88,7 @@ func main() {
 func run() error {
 	conf := getConfig()
 	log, err := logger.InitLogger(conf.LogLevel)
+	ctx := context.Background()
 
 	if err != nil {
 		return err
@@ -103,10 +105,12 @@ func run() error {
 			log.WarnMsg("Error connecting to database", err)
 		}
 		defer storage.(*repository.SqlStorage).Close()
+		storage.(*repository.SqlStorage).DoMigrate()
+		storage.(*repository.SqlStorage).Restore(ctx)
 	} else {
 		storage = repository.NewMemStorage(conf.StoreInterval, conf.FileStoragePath)
 		if conf.Restore {
-			err := storage.(*repository.MemStorage).RestoreFromFile()
+			err := storage.(*repository.MemStorage).RestoreFromFile(ctx)
 			if err != nil {
 				log.WarnMsg("Error restoring metrics from file", err)
 			}
@@ -120,7 +124,7 @@ func run() error {
 		for {
 			select {
 			case <-syncTicker.C:
-				if err := storage.SyncIfNeed(); err != nil {
+				if err := storage.SyncIfNeed(ctx); err != nil {
 					log.WarnMsg("Error during periodic sync:", err)
 				}
 			}

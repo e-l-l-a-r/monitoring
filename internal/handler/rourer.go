@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"html/template"
@@ -16,16 +17,18 @@ import (
 )
 
 type Storage interface {
-	AddData(name string, mtype string, value interface{}) error
-	AddMetricData(metrics model.Metrics) error
-	GetValues() map[string]model.Metrics
-	GetValue(name string, mtype string) (float64, error)
-	GetMetricValue(metric *model.Metrics) error
-	SyncIfNeed() error
+	AddData(ctx context.Context, name string, mtype string, value interface{}) error
+	AddMetricData(ctx context.Context, metrics model.Metrics) error
+	GetValues(ctx context.Context) map[string]model.Metrics
+	GetValue(ctx context.Context, name string, mtype string) (float64, error)
+	GetMetricValue(ctx context.Context, metric *model.Metrics) error
+	SyncIfNeed(ctx context.Context) error
 }
 
 func listMetrics(storage Storage) http.HandlerFunc {
 	return func(resp http.ResponseWriter, req *http.Request) {
+		ctx := context.Background()
+		defer ctx.Done()
 		type MetricRow struct {
 			Name  string
 			Type  string
@@ -60,8 +63,8 @@ func listMetrics(storage Storage) http.HandlerFunc {
 			return
 		}
 
-		rows := make([]MetricRow, 0, len(storage.GetValues()))
-		for _, metric := range storage.GetValues() {
+		rows := make([]MetricRow, 0, len(storage.GetValues(ctx)))
+		for _, metric := range storage.GetValues(ctx) {
 			if metric.MType == model.Counter {
 				rows = append(rows, MetricRow{
 					Name:  metric.ID,
@@ -88,7 +91,8 @@ func listMetrics(storage Storage) http.HandlerFunc {
 
 func getMetric(storage Storage) http.HandlerFunc {
 	return func(resp http.ResponseWriter, req *http.Request) {
-		val, err := storage.GetValue(chi.URLParam(req, "name"), chi.URLParam(req, "mtype"))
+		ctx := context.Background()
+		val, err := storage.GetValue(ctx, chi.URLParam(req, "name"), chi.URLParam(req, "mtype"))
 		if err != nil {
 			if _, ok := errors.AsType[*repository.MetricNotFoundError](err); ok {
 				http.Error(resp, err.Error(), http.StatusNotFound)
@@ -146,6 +150,8 @@ func GetRouter(storage Storage) *chi.Mux {
 
 func updMetric(storage Storage) http.HandlerFunc {
 	return func(resp http.ResponseWriter, req *http.Request) {
+		ctx := context.Background()
+		defer ctx.Done()
 		val, err := strconv.ParseFloat(chi.URLParam(req, "val"), 64)
 		if err != nil {
 			http.Error(resp, "Incorrect value", http.StatusBadRequest)
@@ -153,9 +159,9 @@ func updMetric(storage Storage) http.HandlerFunc {
 		}
 		switch chi.URLParam(req, "mtype") {
 		case model.Gauge:
-			err = storage.AddData(chi.URLParam(req, "name"), chi.URLParam(req, "mtype"), val)
+			err = storage.AddData(ctx, chi.URLParam(req, "name"), chi.URLParam(req, "mtype"), val)
 		case model.Counter:
-			err = storage.AddData(chi.URLParam(req, "name"), chi.URLParam(req, "mtype"), int64(val))
+			err = storage.AddData(ctx, chi.URLParam(req, "name"), chi.URLParam(req, "mtype"), int64(val))
 		default:
 			http.Error(resp, "Incorrect type", http.StatusBadRequest)
 		}
@@ -165,7 +171,7 @@ func updMetric(storage Storage) http.HandlerFunc {
 			return
 		}
 
-		storage.SyncIfNeed()
+		storage.SyncIfNeed(ctx)
 
 		resp.Write([]byte(""))
 	}
@@ -174,6 +180,8 @@ func updMetric(storage Storage) http.HandlerFunc {
 
 func updJsonMetric(storage Storage) http.HandlerFunc {
 	return func(resp http.ResponseWriter, req *http.Request) {
+		ctx := context.Background()
+		defer ctx.Done()
 
 		var metric model.Metrics
 
@@ -193,13 +201,13 @@ func updJsonMetric(storage Storage) http.HandlerFunc {
 		str, _ := json.Marshal(metric)
 		logger.Info("Update metric: ", string(str))
 
-		err = storage.AddMetricData(metric)
+		err = storage.AddMetricData(ctx, metric)
 		if err != nil {
 			http.Error(resp, err.Error(), http.StatusBadRequest)
 			return
 		}
 
-		storage.SyncIfNeed()
+		storage.SyncIfNeed(ctx)
 
 		resp.Write([]byte(""))
 	}
@@ -207,6 +215,9 @@ func updJsonMetric(storage Storage) http.HandlerFunc {
 
 func getJsonMetric(storage Storage) http.HandlerFunc {
 	return func(resp http.ResponseWriter, req *http.Request) {
+
+		ctx := context.Background()
+		defer ctx.Done()
 
 		var metric model.Metrics
 		dec := json.NewDecoder(req.Body)
@@ -218,7 +229,7 @@ func getJsonMetric(storage Storage) http.HandlerFunc {
 			return
 		}
 
-		storage.GetMetricValue(&metric)
+		storage.GetMetricValue(ctx, &metric)
 
 		// сериализуем ответ сервера
 		enc := json.NewEncoder(resp)
