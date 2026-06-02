@@ -19,6 +19,11 @@ type SqlStorage struct {
 	db *sql.DB
 }
 
+type metadata struct {
+	name  string
+	mtype string
+}
+
 func NewSqlStorage(connectionStr string) (res *SqlStorage, err error) {
 	db, err := sql.Open("pgx", connectionStr)
 	if err != nil {
@@ -133,6 +138,93 @@ func (sqls *SqlStorage) AddMetricData(ctx context.Context, metric model.Metrics)
 	}
 
 	return sqls.saveMetric(ctx, metric.ID, !ok)
+}
+
+func massAddMetadata(ctx context.Context, tx *sql.Tx, metadata []metadata) error {
+	stmt, err := tx.PrepareContext(ctx, "INSERT INTO metrics_meta(name, mtype) values ($1, $2) on conflict do nothing ")
+	if err != nil {
+		logger.Warn("Error preparing statement: ", err)
+		return err
+	}
+	for _, m := range metadata {
+		_, err := stmt.ExecContext(ctx, m.name, m.mtype)
+		if err != nil {
+			logger.Warn("Error adding metric ", m.name, " metadata to DB: ", err)
+			return err
+		}
+	}
+	return nil
+}
+
+func (sqls *SqlStorage) massAddValues(ctx context.Context, tx *sql.Tx, values []model.Metrics) error {
+	stmt_gauge, err := tx.PrepareContext(ctx, `
+		WITH meta as (select *
+					  from metrics_meta
+					  where name = $1 and mtype = $2)
+		INSERT
+		INTO gauge_values (metric_id, value, datetime)
+		SELECT id, $3, now()
+		FROM meta`)
+	if err != nil {
+		logger.Warn("Error preparing statement for gauge values: ", err)
+		return err
+	}
+	stmt_counter, err := tx.PrepareContext(ctx, `
+		WITH meta as (select *
+					  from metrics_meta
+					  where name = $1 and mtype = $2)
+		INSERT
+		INTO counter_values (metric_id, value, datetime)
+		SELECT id, $3, now()
+		FROM meta`)
+	if err != nil {
+		logger.Warn("Error preparing statement for counter values: ", err)
+		return err
+	}
+	for _, metric := range values {
+		err := sqls.MemStorage.AddMetricData(ctx, metric)
+		if err != nil {
+			logger.Warn("Error adding metric ", metric.ID, " : ", err)
+			return err
+		}
+		switch metric.MType {
+		case model.Counter:
+			_, err = stmt_counter.ExecContext(ctx, metric.ID, metric.MType, metric.Delta)
+		case model.Gauge:
+			_, err = stmt_gauge.ExecContext(ctx, metric.ID, metric.MType, metric.Value)
+		}
+		if err != nil {
+			logger.Warn("Error adding value for ", metric.ID, " metadata to DB: ", err)
+			return err
+		}
+	}
+	return nil
+}
+
+func (sqls *SqlStorage) AddBatchMetricsData(ctx context.Context, metrics []model.Metrics) error {
+	new_metadata := []metadata{}
+	for _, metric := range metrics {
+		_, ok := sqls.Metrics[metric.ID]
+		if !ok {
+			new_metadata = append(new_metadata, metadata{name: metric.ID, mtype: metric.MType})
+			logger.Info("Add new metadata: ", metric.ID)
+		}
+	}
+	tx, _ := sqls.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
+	err := massAddMetadata(ctx, tx, new_metadata)
+	if err != nil {
+		logger.Warn("Error adding metadata: ", err)
+		tx.Rollback()
+		return err
+	}
+	err = sqls.massAddValues(ctx, tx, metrics)
+	if err != nil {
+		logger.Warn("Error adding values: ", err)
+		tx.Rollback()
+		return err
+	}
+	tx.Commit()
+	return nil
 }
 
 func (sqls *SqlStorage) Restore(ctx context.Context) error {

@@ -117,6 +117,16 @@ func (ms *MemStorage) AddMetricData(ctx context.Context, metric model.Metrics) e
 	return nil
 }
 
+func (ms *MemStorage) AddBatchMetricsData(ctx context.Context, metrics []model.Metrics) error {
+	for _, metric := range metrics {
+		err := ms.AddMetricData(ctx, metric)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func isValidMetricType(mType string) bool {
 	return mType == model.Counter || mType == model.Gauge
 }

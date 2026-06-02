@@ -19,6 +19,7 @@ import (
 type Storage interface {
 	AddData(ctx context.Context, name string, mtype string, value interface{}) error
 	AddMetricData(ctx context.Context, metrics model.Metrics) error
+	AddBatchMetricsData(ctx context.Context, metrics []model.Metrics) error
 	GetValues(ctx context.Context) map[string]model.Metrics
 	GetValue(ctx context.Context, name string, mtype string) (float64, error)
 	GetMetricValue(ctx context.Context, metric *model.Metrics) error
@@ -135,7 +136,7 @@ func GetRouter(storage Storage) *chi.Mux {
 	rtr.Post("/", logger.ServerRequestLogger(incorrectApi))
 
 	rtr.Post("/update/", logger.ServerRequestLogger(updJsonMetric(storage)))
-	//rtr.Post("/update/", logger.ServerRequestLogger(incorrectApi))
+	rtr.Post("/updates/", logger.ServerRequestLogger(updBatchMetrics(storage)))
 	rtr.Post("/update/{mtype}/", logger.ServerRequestLogger(notFound))
 	rtr.Post("/update/{mtype}/{name}/", logger.ServerRequestLogger(badRequest))
 	rtr.Post("/update/{mtype}/{name}/{val}", logger.ServerRequestLogger(updMetric(storage)))
@@ -202,6 +203,41 @@ func updJsonMetric(storage Storage) http.HandlerFunc {
 		logger.Info("Update metric: ", string(str))
 
 		err = storage.AddMetricData(ctx, metric)
+		if err != nil {
+			http.Error(resp, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		storage.SyncIfNeed(ctx)
+
+		resp.Write([]byte(""))
+	}
+}
+
+func updBatchMetrics(storage Storage) http.HandlerFunc {
+	return func(resp http.ResponseWriter, req *http.Request) {
+		ctx := context.Background()
+		defer ctx.Done()
+
+		var metrics []model.Metrics
+
+		dataReader, err := compressor.RequesrReader(req)
+		if err != nil {
+			http.Error(resp, err.Error(), http.StatusBadRequest)
+			return
+		}
+		dec := json.NewDecoder(dataReader)
+
+		if err := dec.Decode(&metrics); err != nil {
+			http.Error(resp, "Incorrect value", http.StatusBadRequest)
+			logger.Info("cannot decode request JSON body", zap.Error(err))
+			return
+		}
+
+		str, _ := json.Marshal(metrics)
+		logger.Info("Update metric: ", string(str))
+
+		err = storage.AddBatchMetricsData(ctx, metrics)
 		if err != nil {
 			http.Error(resp, err.Error(), http.StatusBadRequest)
 			return

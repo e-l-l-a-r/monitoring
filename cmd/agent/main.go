@@ -12,6 +12,7 @@ import (
 	"github.com/e-l-l-a-r/monitoring/internal/agent"
 	"github.com/e-l-l-a-r/monitoring/internal/compressor"
 	"github.com/e-l-l-a-r/monitoring/internal/logger"
+	"github.com/e-l-l-a-r/monitoring/internal/model"
 	"github.com/spf13/pflag"
 )
 
@@ -69,6 +70,36 @@ func getConfig() (result config) {
 	return
 }
 
+type Logger interface {
+	InfoMsg(args ...interface{})
+	WarnMsg(args ...interface{})
+	DoRequestWithLog(client *http.Client, req *http.Request) (*http.Response, error)
+}
+
+func sendData(client *http.Client, log Logger, url string, val interface{}) error {
+	data, err := json.Marshal(val)
+	if err != nil {
+		panic(err)
+	}
+	isCompressed := true
+	reader, err := compressor.NewGzippedReader(data)
+	if err != nil {
+		log.WarnMsg("error while compressing data: ", err, ". Send uncompressed.")
+		isCompressed = false
+	}
+	request, err := http.NewRequest(http.MethodPost, url, reader)
+	if err != nil {
+		log.WarnMsg(err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	if isCompressed {
+		request.Header.Set("Content-Encoding", "gzip")
+	}
+
+	_, err = log.DoRequestWithLog(client, request)
+	return err
+}
+
 func main() {
 	var counter uint // счетчик не может быть меньше нуля
 
@@ -92,30 +123,25 @@ func main() {
 		mon.UpdMetrics()
 		// отправляем данные только по достижении счетчиком заданного значения
 		if counter*conf.PollInterval >= conf.ReportInterval {
-			for key, val := range mon.GetValues() {
-				url := fmt.Sprintf("http://%s/update/", conf.Address)
-				data, err := json.Marshal(val)
-				if err != nil {
-					panic(err)
-				}
-				isCompressed := true
-				reader, err := compressor.NewGzippedReader(data)
-				if err != nil {
-					log.WarnMsg("error while compressing data: ", err, ". Send uncompressed.")
-					isCompressed = false
-				}
-				request, err := http.NewRequest(http.MethodPost, url, reader)
-				if err != nil {
-					log.WarnMsg(err)
-				}
-				request.Header.Set("Content-Type", "application/json")
-				if isCompressed {
-					request.Header.Set("Content-Encoding", "gzip")
-				}
-
-				_, err = log.DoRequestWithLog(&client, request)
-				if err == nil {
+			vals := mon.GetValues()
+			log.InfoMsg("Sending data to server")
+			url := fmt.Sprintf("http://%s/updates/", conf.Address)
+			values := make([]model.Metrics, 0, len(vals))
+			for _, v := range vals {
+				values = append(values, v.Metrics)
+			}
+			err := sendData(&client, log, url, values)
+			if err == nil {
+				for key, _ := range vals {
 					mon.OnSuccessSent(key)
+				}
+			} else {
+				for key, val := range vals {
+					url := fmt.Sprintf("http://%s/update/", conf.Address)
+					err := sendData(&client, log, url, val.Metrics)
+					if err == nil {
+						mon.OnSuccessSent(key)
+					}
 				}
 			}
 			log.InfoMsg("All sent")
