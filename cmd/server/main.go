@@ -100,14 +100,19 @@ func run() error {
 	log.InfoMsg("==================================")
 	var storage handler.Storage
 	if conf.DbConnSrting != "" {
-		storage, err = repository.NewSqlStorage(conf.DbConnSrting)
+		log.InfoMsg("Use DataBase storage")
+		result, err := logger.ExecuteWithRetry(func(args ...interface{}) (interface{}, error) {
+			return repository.NewSqlStorage(conf.DbConnSrting)
+		})
 		if err != nil {
-			log.WarnMsg("Error connecting to database", err)
+			return err
 		}
+		storage = result.(*repository.SqlStorage)
 		defer storage.(*repository.SqlStorage).Close()
 		storage.(*repository.SqlStorage).DoMigrate()
 		storage.(*repository.SqlStorage).Restore(ctx)
 	} else {
+		log.InfoMsg("Use Memory storage")
 		storage = repository.NewMemStorage(conf.StoreInterval, conf.FileStoragePath)
 		if conf.Restore {
 			err := storage.(*repository.MemStorage).RestoreFromFile(ctx)
@@ -115,21 +120,21 @@ func run() error {
 				log.WarnMsg("Error restoring metrics from file", err)
 			}
 		}
-	}
 
-	syncTicker := time.NewTicker(time.Duration(conf.StoreInterval) * time.Second)
-	defer syncTicker.Stop()
+		syncTicker := time.NewTicker(time.Duration(conf.StoreInterval) * time.Second)
+		defer syncTicker.Stop()
 
-	go func() {
-		for {
-			select {
-			case <-syncTicker.C:
-				if err := storage.SyncIfNeed(ctx); err != nil {
-					log.WarnMsg("Error during periodic sync:", err)
+		go func() {
+			for {
+				select {
+				case <-syncTicker.C:
+					if err := storage.SyncIfNeed(ctx); err != nil {
+						log.WarnMsg("Error during periodic sync:", err)
+					}
 				}
 			}
-		}
-	}()
+		}()
+	}
 
 	router := handler.GetRouter(storage)
 	err = http.ListenAndServe(conf.Address, compressor.GzipHandle(router))

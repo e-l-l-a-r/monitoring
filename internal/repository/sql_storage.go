@@ -46,15 +46,13 @@ func (sql *SqlStorage) Ping() error {
 func (sql *SqlStorage) DoMigrate() error {
 	driver, err := postgres.WithInstance(sql.db, &postgres.Config{})
 	if err != nil {
-		logger.Warn("Error creating migrations driver: ", err)
-		return err
+		return logger.NewTracedError("Error creating migrations driver: ", err)
 	}
 	m, err := migrate.NewWithDatabaseInstance(
 		"file://./migrations",
 		"postgres", driver)
 	if err != nil {
-		logger.Warn("Error creating migrations: ", err)
-		return err
+		return logger.NewTracedError("Error creating migrations: ", err)
 	}
 	m.Up()
 	return nil
@@ -66,8 +64,7 @@ func (sqls *SqlStorage) addMeta(сtx context.Context, name string, mtype string)
 		mtype,
 	)
 	if err != nil {
-		logger.Warn("Error adding metric ", name, " metadata to DB: ", err)
-		return err
+		return logger.NewTracedError("Error adding metric "+name+" metadata to DB: ", err)
 	}
 	return nil
 }
@@ -90,8 +87,7 @@ func (sqls *SqlStorage) addVal(сtx context.Context, name string, mtype string, 
 	)
 
 	if err != nil {
-		logger.Warn("Error adding value for ", name, " metadata to DB: ", err)
-		return err
+		return logger.NewTracedError("Error adding value for "+name+" metadata to DB: ", err)
 	}
 	return nil
 }
@@ -122,8 +118,7 @@ func (sqls *SqlStorage) AddData(ctx context.Context, name string, mtype string, 
 	_, ok := sqls.Metrics[name]
 	err := sqls.MemStorage.AddData(ctx, name, mtype, value)
 	if err != nil {
-		logger.Warn("Error adding metric ", name, " : ", err)
-		return err
+		return logger.NewTracedError("Error adding metric "+name+" : ", err)
 	}
 
 	return sqls.saveMetric(ctx, name, !ok)
@@ -133,8 +128,7 @@ func (sqls *SqlStorage) AddMetricData(ctx context.Context, metric model.Metrics)
 	val, ok := sqls.Metrics[metric.ID]
 	err := sqls.MemStorage.AddMetricData(ctx, metric)
 	if err != nil {
-		logger.Warn("Error adding metric ", val.ID, " : ", err)
-		return err
+		return logger.NewTracedError("Error adding metric "+val.ID+" : ", err)
 	}
 
 	return sqls.saveMetric(ctx, metric.ID, !ok)
@@ -143,14 +137,12 @@ func (sqls *SqlStorage) AddMetricData(ctx context.Context, metric model.Metrics)
 func massAddMetadata(ctx context.Context, tx *sql.Tx, metadata []metadata) error {
 	stmt, err := tx.PrepareContext(ctx, "INSERT INTO metrics_meta(name, mtype) values ($1, $2) on conflict do nothing ")
 	if err != nil {
-		logger.Warn("Error preparing statement: ", err)
-		return err
+		return logger.NewTracedError("Error preparing statement: ", err)
 	}
 	for _, m := range metadata {
 		_, err := stmt.ExecContext(ctx, m.name, m.mtype)
 		if err != nil {
-			logger.Warn("Error adding metric ", m.name, " metadata to DB: ", err)
-			return err
+			return logger.NewTracedError("Error adding metric "+m.name+" metadata to DB: ", err)
 		}
 	}
 	return nil
@@ -166,8 +158,7 @@ func (sqls *SqlStorage) massAddValues(ctx context.Context, tx *sql.Tx, values []
 		SELECT id, $3, now()
 		FROM meta`)
 	if err != nil {
-		logger.Warn("Error preparing statement for gauge values: ", err)
-		return err
+		return logger.NewTracedError("Error preparing statement for gauge values: ", err)
 	}
 	stmt_counter, err := tx.PrepareContext(ctx, `
 		WITH meta as (select *
@@ -178,14 +169,12 @@ func (sqls *SqlStorage) massAddValues(ctx context.Context, tx *sql.Tx, values []
 		SELECT id, $3, now()
 		FROM meta`)
 	if err != nil {
-		logger.Warn("Error preparing statement for counter values: ", err)
-		return err
+		return logger.NewTracedError("Error preparing statement for counter values: ", err)
 	}
 	for _, metric := range values {
 		err := sqls.MemStorage.AddMetricData(ctx, metric)
 		if err != nil {
-			logger.Warn("Error adding metric ", metric.ID, " : ", err)
-			return err
+			return logger.NewTracedError("Error adding metric "+metric.ID+" : ", err)
 		}
 		switch metric.MType {
 		case model.Counter:
@@ -194,8 +183,7 @@ func (sqls *SqlStorage) massAddValues(ctx context.Context, tx *sql.Tx, values []
 			_, err = stmt_gauge.ExecContext(ctx, metric.ID, metric.MType, metric.Value)
 		}
 		if err != nil {
-			logger.Warn("Error adding value for ", metric.ID, " metadata to DB: ", err)
-			return err
+			return logger.NewTracedError("Error adding value for "+metric.ID+" metadata to DB: ", err)
 		}
 	}
 	return nil
@@ -213,15 +201,13 @@ func (sqls *SqlStorage) AddBatchMetricsData(ctx context.Context, metrics []model
 	tx, _ := sqls.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
 	err := massAddMetadata(ctx, tx, new_metadata)
 	if err != nil {
-		logger.Warn("Error adding metadata: ", err)
 		tx.Rollback()
-		return err
+		return logger.NewTracedError("Error adding metadata: ", err)
 	}
 	err = sqls.massAddValues(ctx, tx, metrics)
 	if err != nil {
-		logger.Warn("Error adding values: ", err)
 		tx.Rollback()
-		return err
+		return logger.NewTracedError("Error adding values: ", err)
 	}
 	tx.Commit()
 	return nil
@@ -247,8 +233,7 @@ func (sqls *SqlStorage) Restore(ctx context.Context) error {
 			mtype,
 		)
 		if err != nil {
-			logger.Warn("Error querying "+mtype+" metrics: ", err)
-			return err
+			return logger.NewTracedError("Error querying "+mtype+" metrics: ", err)
 		}
 		defer rows.Close()
 
@@ -258,15 +243,13 @@ func (sqls *SqlStorage) Restore(ctx context.Context) error {
 			case model.Counter:
 				var value int64
 				if err := rows.Scan(&name, &value); err != nil {
-					logger.Warn("Error scanning counter row: ", err)
-					return err
+					return logger.NewTracedError("Error scanning counter row: ", err)
 				}
 				sqls.MemStorage.Metrics[name] = model.NewCounterMetrics(name, value)
 			case model.Gauge:
 				var value float64
 				if err := rows.Scan(&name, &value); err != nil {
-					logger.Warn("Error scanning gauge row: ", err)
-					return err
+					return logger.NewTracedError("Error scanning gauge row: ", err)
 				}
 				sqls.MemStorage.Metrics[name] = model.NewGaugeMetrics(name, value)
 			}

@@ -169,16 +169,14 @@ func (ms *MemStorage) GetMetricValue(ctx context.Context, metric *model.Metrics)
 func (ms *MemStorage) syncToFile(ctx context.Context) error {
 	file, err := os.OpenFile(ms.SyncFileName, os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
-		logger.Warn("Error opening file ", ms.SyncFileName, ": ", err)
-		return err
+		return logger.NewTracedError("Error opening file "+ms.SyncFileName+": ", err)
 	}
 	defer file.Close()
 	enc := json.NewEncoder(file)
 
 	err = enc.Encode(ms.Metrics)
 	if err != nil {
-		logger.Warn("Error saving data to ", ms.SyncFileName, ": ", err)
-		return err
+		return logger.NewTracedError("Error saving data to "+ms.SyncFileName+": ", err)
 	}
 
 	return nil
@@ -187,14 +185,12 @@ func (ms *MemStorage) syncToFile(ctx context.Context) error {
 func (ms *MemStorage) RestoreFromFile(ctx context.Context) error {
 	file, err := os.OpenFile(ms.SyncFileName, os.O_CREATE|os.O_RDONLY, 0644)
 	if err != nil {
-		logger.Warn("Error opening file ", ms.SyncFileName, ": ", err)
-		return err
+		return logger.NewTracedError("Error opening file "+ms.SyncFileName+": ", err)
 	}
 	defer file.Close()
 	dec := json.NewDecoder(file)
 	if err := dec.Decode(&ms.Metrics); err != nil {
-		logger.Warn("Error while restoring data from ", ms.SyncFileName, ": ", err)
-		return err
+		return logger.NewTracedError("Error while restoring data from "+ms.SyncFileName+": ", err)
 	}
 	return nil
 }

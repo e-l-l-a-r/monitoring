@@ -202,7 +202,9 @@ func updJsonMetric(storage Storage) http.HandlerFunc {
 		str, _ := json.Marshal(metric)
 		logger.Info("Update metric: ", string(str))
 
-		err = storage.AddMetricData(ctx, metric)
+		err = logger.ExecuteWithRetryNoResult(func(args ...interface{}) error {
+			return storage.AddMetricData(ctx, metric)
+		})
 		if err != nil {
 			http.Error(resp, err.Error(), http.StatusBadRequest)
 			return
@@ -237,7 +239,9 @@ func updBatchMetrics(storage Storage) http.HandlerFunc {
 		str, _ := json.Marshal(metrics)
 		logger.Info("Update metric: ", string(str))
 
-		err = storage.AddBatchMetricsData(ctx, metrics)
+		err = logger.ExecuteWithRetryNoResult(func(args ...interface{}) error {
+			return storage.AddBatchMetricsData(ctx, metrics)
+		})
 		if err != nil {
 			http.Error(resp, err.Error(), http.StatusBadRequest)
 			return
@@ -281,7 +285,9 @@ func pingDb(storage Storage) http.HandlerFunc {
 		switch s := storage.(type) {
 		case *repository.SqlStorage:
 			// Здесь s имеет тип *repository.SqlStorage
-			err := s.Ping()
+			err := logger.ExecuteWithRetryNoResult(func(args ...interface{}) error {
+				return s.Ping()
+			})
 			if err != nil {
 				http.Error(resp, err.Error(), http.StatusInternalServerError)
 				logger.Warn("Ping error: ", err.Error())

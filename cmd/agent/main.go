@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"net/http"
@@ -124,13 +125,17 @@ func main() {
 		// отправляем данные только по достижении счетчиком заданного значения
 		if counter*conf.PollInterval >= conf.ReportInterval {
 			vals := mon.GetValues()
+			var errs []error
 			log.InfoMsg("Sending data to server")
 			url := fmt.Sprintf("http://%s/updates/", conf.Address)
 			values := make([]model.Metrics, 0, len(vals))
 			for _, v := range vals {
 				values = append(values, v.Metrics)
 			}
-			err := sendData(&client, log, url, values)
+			err := logger.ExecuteWithRetryNoResult(func(args ...interface{}) error {
+				return sendData(&client, log, url, values)
+			})
+			errs = append(errs, err)
 			if err == nil {
 				for key, _ := range vals {
 					mon.OnSuccessSent(key)
@@ -138,13 +143,20 @@ func main() {
 			} else {
 				for key, val := range vals {
 					url := fmt.Sprintf("http://%s/update/", conf.Address)
-					err := sendData(&client, log, url, val.Metrics)
+					err := logger.ExecuteWithRetryNoResult(func(args ...interface{}) error {
+						return sendData(&client, log, url, val.Metrics)
+					})
+					errs = append(errs, err)
 					if err == nil {
 						mon.OnSuccessSent(key)
 					}
 				}
 			}
-			log.InfoMsg("All sent")
+			if errors.Join(errs...) != nil {
+				log.WarnMsg("Some metrics not sent")
+			} else {
+				log.InfoMsg("All sent")
+			}
 			counter = 0
 		}
 		time.Sleep(time.Duration(conf.PollInterval) * time.Second)
