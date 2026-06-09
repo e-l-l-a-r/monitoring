@@ -28,8 +28,7 @@ type Storage interface {
 
 func listMetrics(storage Storage) http.HandlerFunc {
 	return func(resp http.ResponseWriter, req *http.Request) {
-		ctx := context.Background()
-		defer ctx.Done()
+		ctx := req.Context()
 		type MetricRow struct {
 			Name  string
 			Type  string
@@ -151,8 +150,7 @@ func GetRouter(storage Storage) *chi.Mux {
 
 func updMetric(storage Storage) http.HandlerFunc {
 	return func(resp http.ResponseWriter, req *http.Request) {
-		ctx := context.Background()
-		defer ctx.Done()
+		ctx := req.Context()
 		val, err := strconv.ParseFloat(chi.URLParam(req, "val"), 64)
 		if err != nil {
 			http.Error(resp, "Incorrect value", http.StatusBadRequest)
@@ -181,8 +179,7 @@ func updMetric(storage Storage) http.HandlerFunc {
 
 func updJsonMetric(storage Storage) http.HandlerFunc {
 	return func(resp http.ResponseWriter, req *http.Request) {
-		ctx := context.Background()
-		defer ctx.Done()
+		ctx := req.Context()
 
 		var metric model.Metrics
 
@@ -218,8 +215,7 @@ func updJsonMetric(storage Storage) http.HandlerFunc {
 
 func updBatchMetrics(storage Storage) http.HandlerFunc {
 	return func(resp http.ResponseWriter, req *http.Request) {
-		ctx := context.Background()
-		defer ctx.Done()
+		ctx := req.Context()
 
 		var metrics []model.Metrics
 
@@ -256,8 +252,7 @@ func updBatchMetrics(storage Storage) http.HandlerFunc {
 func getJsonMetric(storage Storage) http.HandlerFunc {
 	return func(resp http.ResponseWriter, req *http.Request) {
 
-		ctx := context.Background()
-		defer ctx.Done()
+		ctx := req.Context()
 
 		var metric model.Metrics
 		dec := json.NewDecoder(req.Body)

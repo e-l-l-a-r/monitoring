@@ -80,7 +80,7 @@ type Logger interface {
 func sendData(client *http.Client, log Logger, url string, val interface{}) error {
 	data, err := json.Marshal(val)
 	if err != nil {
-		panic(err)
+		return err
 	}
 	isCompressed := true
 	reader, err := compressor.NewGzippedReader(data)

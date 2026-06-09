@@ -28,8 +28,8 @@ func TestMemStorage_GoodGaugeCases(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.TODO()
-			defer ctx.Done()
+			ctx, cancel := context.WithCancel(context.TODO())
+			defer cancel()
 			ms.AddData(ctx, tt.key, tt.mType, tt.val)
 			val, err := ms.GetValue(ctx, tt.key, tt.mType)
 			assert.NoError(t, err)
@@ -54,8 +54,8 @@ func TestMemStorage_GoodCounterCases(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.TODO()
-			defer ctx.Done()
+			ctx, cancel := context.WithCancel(context.TODO())
+			defer cancel()
 			ms.AddData(ctx, tt.key, tt.mType, tt.val)
 			val, err := ms.GetValue(ctx, tt.key, tt.mType)
 			assert.NoError(t, err)
@@ -75,8 +75,8 @@ func TestMemStorage_BadCases(t *testing.T) {
 		{"Add incorrect type", "cnt", model.Gauge, 1.0, "type mismatch"},
 		{"Add wrong type", "bad", "bad", 2.0, "invalid type"},
 	}
-	ctx := context.TODO()
-	defer ctx.Done()
+	ctx, cancel := context.WithCancel(context.TODO())
+	defer cancel()
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -201,8 +201,8 @@ func TestAddMetricData(t *testing.T) {
 			storage := &MemStorage{
 				Metrics: tt.initial,
 			}
-			ctx := context.TODO()
-			defer ctx.Done()
+			ctx, cancel := context.WithCancel(context.TODO())
+			defer cancel()
 
 			err := storage.AddMetricData(ctx, tt.metric)
 
@@ -305,8 +305,8 @@ func TestGetMetricValue(t *testing.T) {
 			storage := &MemStorage{
 				Metrics: tt.initial,
 			}
-			ctx := context.TODO()
-			defer ctx.Done()
+			ctx, cancel := context.WithCancel(context.TODO())
+			defer cancel()
 
 			err := storage.GetMetricValue(ctx, tt.metric)
 
