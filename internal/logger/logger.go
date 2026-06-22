@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 type (
@@ -49,8 +50,16 @@ func InitLogger(level string) (*logger, error) {
 	cfg := zap.NewProductionConfig()
 	// устанавливаем уровень
 	cfg.Level = lvl
+	cfg.Encoding = "console"
+	cfg.EncoderConfig.ConsoleSeparator = "\t| "
+	// формат времени
+	cfg.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder // или RFC3339TimeEncoder, EpochTimeEncoder
+	// формат уровня логирования
+	cfg.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
+	// настраиваем формат caller
+	cfg.EncoderConfig.EncodeCaller = zapcore.ShortCallerEncoder
 	// создаём логер на основе конфигурации
-	log, err := cfg.Build()
+	log, err := cfg.Build(zap.AddCallerSkip(1))
 	if err != nil {
 		return nil, err
 	}

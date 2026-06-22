@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"net/http"
 	"os"
@@ -20,6 +21,7 @@ type Config struct {
 	StoreInterval   uint   `env:"STORE_INTERVAL"`
 	FileStoragePath string `env:"FILE_STORAGE_PATH"`
 	Restore         bool   `env:"RESTORE"`
+	DbConnSrting    string `env:"DATABASE_DSN"`
 }
 
 func parseFlags() {
@@ -44,6 +46,8 @@ func getConfig() (result Config) {
 		"file to store metrics")
 	var flagRestore = pflag.BoolP("restore", "r", false,
 		"restore metrics from file")
+	var flagDbConnSrting = pflag.StringP("db-conn-string", "d", "",
+		"database connection string")
 
 	err := env.Parse(&result)
 
@@ -68,6 +72,9 @@ func getConfig() (result Config) {
 	if result.Restore == false {
 		result.Restore = *flagRestore
 	}
+	if result.DbConnSrting == "" {
+		result.DbConnSrting = *flagDbConnSrting
+	}
 
 	return
 }
@@ -81,6 +88,7 @@ func main() {
 func run() error {
 	conf := getConfig()
 	log, err := logger.InitLogger(conf.LogLevel)
+	ctx := context.Background()
 
 	if err != nil {
 		return err
@@ -90,27 +98,43 @@ func run() error {
 	log.InfoMsg("Sync data to ", conf.FileStoragePath, " every ", conf.StoreInterval, " seconds.")
 	log.InfoMsg("Restore on startup: ", conf.Restore)
 	log.InfoMsg("==================================")
-	storage := repository.NewMemStorage(conf.StoreInterval, conf.FileStoragePath)
-	if conf.Restore {
-		err := storage.RestoreFromFile()
+	var storage handler.Storage
+	if conf.DbConnSrting != "" {
+		log.InfoMsg("Use DataBase storage")
+		result, err := logger.ExecuteWithRetry(func(args ...interface{}) (interface{}, error) {
+			return repository.NewSqlStorage(conf.DbConnSrting)
+		})
 		if err != nil {
-			log.WarnMsg("Error restoring metrics from file", err)
+			return err
 		}
-	}
-
-	syncTicker := time.NewTicker(time.Duration(conf.StoreInterval) * time.Second)
-	defer syncTicker.Stop()
-
-	go func() {
-		for {
-			select {
-			case <-syncTicker.C:
-				if err := storage.SyncIfNeed(); err != nil {
-					log.WarnMsg("Error during periodic sync:", err)
-				}
+		storage = result.(*repository.SqlStorage)
+		defer storage.(*repository.SqlStorage).Close()
+		storage.(*repository.SqlStorage).DoMigrate()
+		storage.(*repository.SqlStorage).Restore(ctx)
+	} else {
+		log.InfoMsg("Use Memory storage")
+		storage = repository.NewMemStorage(conf.StoreInterval, conf.FileStoragePath)
+		if conf.Restore {
+			err := storage.(*repository.MemStorage).RestoreFromFile(ctx)
+			if err != nil {
+				log.WarnMsg("Error restoring metrics from file", err)
 			}
 		}
-	}()
+
+		syncTicker := time.NewTicker(time.Duration(conf.StoreInterval) * time.Second)
+		defer syncTicker.Stop()
+
+		go func() {
+			for {
+				select {
+				case <-syncTicker.C:
+					if err := storage.SyncIfNeed(ctx); err != nil {
+						log.WarnMsg("Error during periodic sync:", err)
+					}
+				}
+			}
+		}()
+	}
 
 	router := handler.GetRouter(storage)
 	err = http.ListenAndServe(conf.Address, compressor.GzipHandle(router))

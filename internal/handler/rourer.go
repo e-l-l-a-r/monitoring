@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"html/template"
@@ -15,8 +16,19 @@ import (
 	"go.uber.org/zap"
 )
 
-func listMetrics(storage *repository.MemStorage) http.HandlerFunc {
+type Storage interface {
+	AddData(ctx context.Context, name string, mtype string, value interface{}) error
+	AddMetricData(ctx context.Context, metrics model.Metrics) error
+	AddBatchMetricsData(ctx context.Context, metrics []model.Metrics) error
+	GetValues(ctx context.Context) map[string]model.Metrics
+	GetValue(ctx context.Context, name string, mtype string) (float64, error)
+	GetMetricValue(ctx context.Context, metric *model.Metrics) error
+	SyncIfNeed(ctx context.Context) error
+}
+
+func listMetrics(storage Storage) http.HandlerFunc {
 	return func(resp http.ResponseWriter, req *http.Request) {
+		ctx := req.Context()
 		type MetricRow struct {
 			Name  string
 			Type  string
@@ -51,8 +63,8 @@ func listMetrics(storage *repository.MemStorage) http.HandlerFunc {
 			return
 		}
 
-		rows := make([]MetricRow, 0, len(storage.GetValues()))
-		for _, metric := range storage.GetValues() {
+		rows := make([]MetricRow, 0, len(storage.GetValues(ctx)))
+		for _, metric := range storage.GetValues(ctx) {
 			if metric.MType == model.Counter {
 				rows = append(rows, MetricRow{
 					Name:  metric.ID,
@@ -77,9 +89,10 @@ func listMetrics(storage *repository.MemStorage) http.HandlerFunc {
 	}
 }
 
-func getMetric(storage *repository.MemStorage) http.HandlerFunc {
+func getMetric(storage Storage) http.HandlerFunc {
 	return func(resp http.ResponseWriter, req *http.Request) {
-		val, err := storage.GetValue(chi.URLParam(req, "name"), chi.URLParam(req, "mtype"))
+		ctx := context.Background()
+		val, err := storage.GetValue(ctx, chi.URLParam(req, "name"), chi.URLParam(req, "mtype"))
 		if err != nil {
 			if _, ok := errors.AsType[*repository.MetricNotFoundError](err); ok {
 				http.Error(resp, err.Error(), http.StatusNotFound)
@@ -111,7 +124,7 @@ var (
 	rtr             *chi.Mux
 )
 
-func GetRouter(storage *repository.MemStorage) *chi.Mux {
+func GetRouter(storage Storage) *chi.Mux {
 	if routesInstalled {
 		return rtr // Return existing router
 	}
@@ -122,7 +135,7 @@ func GetRouter(storage *repository.MemStorage) *chi.Mux {
 	rtr.Post("/", logger.ServerRequestLogger(incorrectApi))
 
 	rtr.Post("/update/", logger.ServerRequestLogger(updJsonMetric(storage)))
-	//rtr.Post("/update/", logger.ServerRequestLogger(incorrectApi))
+	rtr.Post("/updates/", logger.ServerRequestLogger(updBatchMetrics(storage)))
 	rtr.Post("/update/{mtype}/", logger.ServerRequestLogger(notFound))
 	rtr.Post("/update/{mtype}/{name}/", logger.ServerRequestLogger(badRequest))
 	rtr.Post("/update/{mtype}/{name}/{val}", logger.ServerRequestLogger(updMetric(storage)))
@@ -130,11 +143,14 @@ func GetRouter(storage *repository.MemStorage) *chi.Mux {
 	rtr.Get("/value/{mtype}/{name}", logger.ServerRequestLogger(getMetric(storage)))
 	rtr.Post("/value/", logger.ServerRequestLogger(getJsonMetric(storage)))
 
+	rtr.Get("/ping", logger.ServerRequestLogger(pingDb(storage)))
+
 	return rtr
 }
 
-func updMetric(storage *repository.MemStorage) http.HandlerFunc {
+func updMetric(storage Storage) http.HandlerFunc {
 	return func(resp http.ResponseWriter, req *http.Request) {
+		ctx := req.Context()
 		val, err := strconv.ParseFloat(chi.URLParam(req, "val"), 64)
 		if err != nil {
 			http.Error(resp, "Incorrect value", http.StatusBadRequest)
@@ -142,9 +158,9 @@ func updMetric(storage *repository.MemStorage) http.HandlerFunc {
 		}
 		switch chi.URLParam(req, "mtype") {
 		case model.Gauge:
-			err = storage.AddData(chi.URLParam(req, "name"), chi.URLParam(req, "mtype"), val)
+			err = storage.AddData(ctx, chi.URLParam(req, "name"), chi.URLParam(req, "mtype"), val)
 		case model.Counter:
-			err = storage.AddData(chi.URLParam(req, "name"), chi.URLParam(req, "mtype"), int64(val))
+			err = storage.AddData(ctx, chi.URLParam(req, "name"), chi.URLParam(req, "mtype"), int64(val))
 		default:
 			http.Error(resp, "Incorrect type", http.StatusBadRequest)
 		}
@@ -154,15 +170,16 @@ func updMetric(storage *repository.MemStorage) http.HandlerFunc {
 			return
 		}
 
-		storage.SyncIfNeed()
+		storage.SyncIfNeed(ctx)
 
 		resp.Write([]byte(""))
 	}
 
 }
 
-func updJsonMetric(storage *repository.MemStorage) http.HandlerFunc {
+func updJsonMetric(storage Storage) http.HandlerFunc {
 	return func(resp http.ResponseWriter, req *http.Request) {
+		ctx := req.Context()
 
 		var metric model.Metrics
 
@@ -182,20 +199,60 @@ func updJsonMetric(storage *repository.MemStorage) http.HandlerFunc {
 		str, _ := json.Marshal(metric)
 		logger.Info("Update metric: ", string(str))
 
-		err = storage.AddMetricData(metric)
+		err = logger.ExecuteWithRetryNoResult(func(args ...interface{}) error {
+			return storage.AddMetricData(ctx, metric)
+		})
 		if err != nil {
 			http.Error(resp, err.Error(), http.StatusBadRequest)
 			return
 		}
 
-		storage.SyncIfNeed()
+		storage.SyncIfNeed(ctx)
 
 		resp.Write([]byte(""))
 	}
 }
 
-func getJsonMetric(storage *repository.MemStorage) http.HandlerFunc {
+func updBatchMetrics(storage Storage) http.HandlerFunc {
 	return func(resp http.ResponseWriter, req *http.Request) {
+		ctx := req.Context()
+
+		var metrics []model.Metrics
+
+		dataReader, err := compressor.RequesrReader(req)
+		if err != nil {
+			http.Error(resp, err.Error(), http.StatusBadRequest)
+			return
+		}
+		dec := json.NewDecoder(dataReader)
+
+		if err := dec.Decode(&metrics); err != nil {
+			http.Error(resp, "Incorrect value", http.StatusBadRequest)
+			logger.Info("cannot decode request JSON body", zap.Error(err))
+			return
+		}
+
+		str, _ := json.Marshal(metrics)
+		logger.Info("Update metric: ", string(str))
+
+		err = logger.ExecuteWithRetryNoResult(func(args ...interface{}) error {
+			return storage.AddBatchMetricsData(ctx, metrics)
+		})
+		if err != nil {
+			http.Error(resp, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		storage.SyncIfNeed(ctx)
+
+		resp.Write([]byte(""))
+	}
+}
+
+func getJsonMetric(storage Storage) http.HandlerFunc {
+	return func(resp http.ResponseWriter, req *http.Request) {
+
+		ctx := req.Context()
 
 		var metric model.Metrics
 		dec := json.NewDecoder(req.Body)
@@ -207,13 +264,34 @@ func getJsonMetric(storage *repository.MemStorage) http.HandlerFunc {
 			return
 		}
 
-		storage.GetMetricValue(&metric)
+		storage.GetMetricValue(ctx, &metric)
 
 		// сериализуем ответ сервера
 		enc := json.NewEncoder(resp)
 		if err := enc.Encode(metric); err != nil {
 			logger.Info("error encoding response", zap.Error(err))
 			return
+		}
+	}
+}
+
+func pingDb(storage Storage) http.HandlerFunc {
+	return func(resp http.ResponseWriter, req *http.Request) {
+		switch s := storage.(type) {
+		case *repository.SqlStorage:
+			// Здесь s имеет тип *repository.SqlStorage
+			err := logger.ExecuteWithRetryNoResult(func(args ...interface{}) error {
+				return s.Ping()
+			})
+			if err != nil {
+				http.Error(resp, err.Error(), http.StatusInternalServerError)
+				logger.Warn("Ping error: ", err.Error())
+				return
+			}
+			resp.Write([]byte(""))
+		default:
+			http.Error(resp, "Incorrect storage type", http.StatusInternalServerError)
+			logger.Warn("Incorrect storage type")
 		}
 	}
 }
