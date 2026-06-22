@@ -9,6 +9,7 @@ import (
 
 	"github.com/caarlos0/env/v6"
 	"github.com/e-l-l-a-r/monitoring/internal/compressor"
+	"github.com/e-l-l-a-r/monitoring/internal/crypto"
 	"github.com/e-l-l-a-r/monitoring/internal/handler"
 	"github.com/e-l-l-a-r/monitoring/internal/logger"
 	"github.com/e-l-l-a-r/monitoring/internal/repository"
@@ -22,6 +23,7 @@ type Config struct {
 	FileStoragePath string `env:"FILE_STORAGE_PATH"`
 	Restore         bool   `env:"RESTORE"`
 	DbConnSrting    string `env:"DATABASE_DSN"`
+	Key             string `env:"KEY"`
 }
 
 func parseFlags() {
@@ -48,6 +50,8 @@ func getConfig() (result Config) {
 		"restore metrics from file")
 	var flagDbConnSrting = pflag.StringP("db-conn-string", "d", "",
 		"database connection string")
+	var flagKey = pflag.StringP("key", "k", "",
+		"Key for signing the requests")
 
 	err := env.Parse(&result)
 
@@ -74,6 +78,10 @@ func getConfig() (result Config) {
 	}
 	if result.DbConnSrting == "" {
 		result.DbConnSrting = *flagDbConnSrting
+	}
+
+	if result.Key == "" {
+		result.Key = *flagKey
 	}
 
 	return
@@ -136,8 +144,13 @@ func run() error {
 		}()
 	}
 
+	_, err = crypto.InitSigner(conf.Key)
+	if err != nil {
+		logger.Fatal(err)
+	}
+
 	router := handler.GetRouter(storage)
-	err = http.ListenAndServe(conf.Address, compressor.GzipHandle(router))
+	err = http.ListenAndServe(conf.Address, crypto.SignHandle(compressor.GzipHandle(router)))
 	if err != nil {
 		return err
 	}

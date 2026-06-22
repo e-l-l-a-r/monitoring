@@ -12,6 +12,7 @@ import (
 	"github.com/caarlos0/env/v6"
 	"github.com/e-l-l-a-r/monitoring/internal/agent"
 	"github.com/e-l-l-a-r/monitoring/internal/compressor"
+	"github.com/e-l-l-a-r/monitoring/internal/crypto"
 	"github.com/e-l-l-a-r/monitoring/internal/logger"
 	"github.com/e-l-l-a-r/monitoring/internal/model"
 	"github.com/spf13/pflag"
@@ -22,6 +23,7 @@ type config struct {
 	PollInterval   uint   `env:"POLL_INTERVAL"`
 	ReportInterval uint   `env:"REPORT_INTERVAL"`
 	LogLevel       string `env:"LOG_LEVEL"`
+	Key            string `env:"KEY"`
 }
 
 func parseFlags() {
@@ -44,6 +46,8 @@ func getConfig() (result config) {
 		"number of seconds to send metrics to server")
 	var flagLogLevel = pflag.StringP("log-level", "l", "Info",
 		"log level, may be Debug, Info (default), Warning, Error")
+	var flagKey = pflag.StringP("key", "k", "",
+		"Key for signing the requests")
 
 	err := env.Parse(&result)
 	if err != nil {
@@ -68,6 +72,10 @@ func getConfig() (result config) {
 		result.LogLevel = *flagLogLevel
 	}
 
+	if result.Key == "" {
+		result.Key = *flagKey
+	}
+
 	return
 }
 
@@ -88,6 +96,7 @@ func sendData(client *http.Client, log Logger, url string, val interface{}) erro
 		log.WarnMsg("error while compressing data: ", err, ". Send uncompressed.")
 		isCompressed = false
 	}
+	reader, sign, err := crypto.NewSegnedReader(reader)
 	request, err := http.NewRequest(http.MethodPost, url, reader)
 	if err != nil {
 		log.WarnMsg(err)
@@ -95,6 +104,10 @@ func sendData(client *http.Client, log Logger, url string, val interface{}) erro
 	request.Header.Set("Content-Type", "application/json")
 	if isCompressed {
 		request.Header.Set("Content-Encoding", "gzip")
+	}
+
+	if sign != "" {
+		request.Header.Set("HashSHA256", sign)
 	}
 
 	_, err = log.DoRequestWithLog(client, request)
@@ -118,6 +131,11 @@ func main() {
 	mon := agent.NewDataCollector()
 	client := http.Client{
 		Timeout: time.Second * 1, // интервал ожидания: 1 секунда
+	}
+
+	_, err = crypto.InitSigner(conf.Key)
+	if err != nil {
+		logger.Fatal(err)
 	}
 
 	for {
