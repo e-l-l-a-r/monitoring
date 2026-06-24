@@ -1,12 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/caarlos0/env/v6"
@@ -24,6 +26,7 @@ type config struct {
 	ReportInterval uint   `env:"REPORT_INTERVAL"`
 	LogLevel       string `env:"LOG_LEVEL"`
 	Key            string `env:"KEY"`
+	RateLimit      uint   `env:"RATE_LIMIT"`
 }
 
 func parseFlags() {
@@ -44,10 +47,12 @@ func getConfig() (result config) {
 		"number of seconds to update metrics")
 	var reportInterval = pflag.UintP("report-interval", "r", 10,
 		"number of seconds to send metrics to server")
-	var flagLogLevel = pflag.StringP("log-level", "l", "Info",
+	var flagLogLevel = pflag.StringP("log-level", "v", "Info",
 		"log level, may be Debug, Info (default), Warning, Error")
 	var flagKey = pflag.StringP("key", "k", "",
 		"Key for signing the requests")
+	var flagRateLimit = pflag.UintP("rate-limit", "l", 0,
+		"Rate limit for requests")
 
 	err := env.Parse(&result)
 	if err != nil {
@@ -74,6 +79,10 @@ func getConfig() (result config) {
 
 	if result.Key == "" {
 		result.Key = *flagKey
+	}
+
+	if result.RateLimit == 0 {
+		result.RateLimit = *flagRateLimit
 	}
 
 	return
@@ -114,9 +123,78 @@ func sendData(client *http.Client, log Logger, url string, val interface{}) erro
 	return err
 }
 
-func main() {
+func runSync(conf config, mon *agent.DataCollector, client *http.Client, log Logger) error {
 	var counter uint // счетчик не может быть меньше нуля
+	for {
+		mon.UpdMetrics()
+		// отправляем данные только по достижении счетчиком заданного значения
+		if counter*conf.PollInterval >= conf.ReportInterval {
+			vals := mon.GetValues()
+			var errs []error
+			log.InfoMsg("Sending data to server")
+			url := fmt.Sprintf("http://%s/updates/", conf.Address)
+			values := make([]model.Metrics, 0, len(vals))
+			for _, v := range vals {
+				values = append(values, v.Metrics)
+			}
+			err := logger.ExecuteWithRetryNoResult(func(args ...interface{}) error {
+				return sendData(client, log, url, values)
+			})
+			errs = append(errs, err)
+			if err == nil {
+				for key, _ := range vals {
+					mon.OnSuccessSent(key)
+				}
+			} else {
+				for key, val := range vals {
+					url := fmt.Sprintf("http://%s/update/", conf.Address)
+					err := logger.ExecuteWithRetryNoResult(func(args ...interface{}) error {
+						return sendData(client, log, url, val.Metrics)
+					})
+					errs = append(errs, err)
+					if err == nil {
+						mon.OnSuccessSent(key)
+					}
+				}
+			}
+			if errors.Join(errs...) != nil {
+				log.WarnMsg("Some metrics not sent")
+			} else {
+				log.InfoMsg("All sent")
+			}
+			counter = 0
+		}
+		time.Sleep(time.Duration(conf.PollInterval) * time.Second)
+		counter += 1
+	}
+}
 
+func async_sender(url string, data <-chan agent.ChannaledMetric,
+	mon *agent.DataCollector, client *http.Client, log Logger, wg *sync.WaitGroup) {
+	defer wg.Done()
+	for val := range data {
+		var errs []error
+		data, err := json.Marshal(val)
+		if err != nil {
+			continue
+		}
+		request, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(data))
+		if err != nil {
+			log.WarnMsg(err)
+		}
+		request.Header.Set("Content-Type", "application/json")
+
+		err = logger.ExecuteWithRetryNoResult(func(args ...interface{}) error {
+			return sendData(client, log, url, val.Metrics)
+		})
+		errs = append(errs, err)
+		if err == nil {
+			mon.OnSuccessSent(val.Key)
+		}
+	}
+}
+
+func main() {
 	conf := getConfig()
 	log, err := logger.InitLogger(conf.LogLevel)
 
@@ -138,46 +216,28 @@ func main() {
 		logger.Fatal(err)
 	}
 
-	for {
-		mon.UpdMetrics()
-		// отправляем данные только по достижении счетчиком заданного значения
-		if counter*conf.PollInterval >= conf.ReportInterval {
-			vals := mon.GetValues()
-			var errs []error
-			log.InfoMsg("Sending data to server")
-			url := fmt.Sprintf("http://%s/updates/", conf.Address)
-			values := make([]model.Metrics, 0, len(vals))
-			for _, v := range vals {
-				values = append(values, v.Metrics)
-			}
-			err := logger.ExecuteWithRetryNoResult(func(args ...interface{}) error {
-				return sendData(&client, log, url, values)
-			})
-			errs = append(errs, err)
-			if err == nil {
-				for key, _ := range vals {
-					mon.OnSuccessSent(key)
-				}
-			} else {
-				for key, val := range vals {
-					url := fmt.Sprintf("http://%s/update/", conf.Address)
-					err := logger.ExecuteWithRetryNoResult(func(args ...interface{}) error {
-						return sendData(&client, log, url, val.Metrics)
-					})
-					errs = append(errs, err)
-					if err == nil {
-						mon.OnSuccessSent(key)
-					}
-				}
-			}
-			if errors.Join(errs...) != nil {
-				log.WarnMsg("Some metrics not sent")
-			} else {
-				log.InfoMsg("All sent")
-			}
-			counter = 0
+	//Запускаем синхронную отправку данных на сервер
+	if conf.RateLimit == 0 {
+		err = runSync(conf, mon, &client, log)
+		if err != nil {
+			logger.Fatal(err)
 		}
-		time.Sleep(time.Duration(conf.PollInterval) * time.Second)
-		counter += 1
+		os.Exit(0)
 	}
+
+	done_ch := make(chan struct{})
+	defer close(done_ch)
+	data_ch := mon.MetricsReader(done_ch, conf.PollInterval)
+
+	url := fmt.Sprintf("http://%s/update/", conf.Address)
+
+	var w uint
+	var wg sync.WaitGroup
+	for w = 0; w < conf.RateLimit; w++ {
+		wg.Add(1)
+		go async_sender(url, data_ch, mon, &client, log, &wg)
+	}
+
+	wg.Wait()
+
 }
