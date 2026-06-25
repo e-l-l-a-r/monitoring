@@ -14,8 +14,8 @@ import (
 
 type (
 	signer struct {
-		key       string
-		is_inited bool
+		key      string
+		isInited bool
 	}
 
 	SignedWriter struct {
@@ -35,7 +35,7 @@ func GetSigner() (*signer, error) {
 }
 
 func (s *signer) SignBytes(data []byte, init []byte) []byte {
-	if !s.is_inited {
+	if !s.isInited {
 		return nil
 	}
 	h := hmac.New(sha256.New, []byte(s.key))
@@ -46,7 +46,7 @@ func (s *signer) SignBytes(data []byte, init []byte) []byte {
 }
 
 func (s *signer) SignData(data []byte) string {
-	if !s.is_inited {
+	if !s.isInited {
 		return ""
 	}
 	h := hmac.New(sha256.New, []byte(s.key))
@@ -58,8 +58,8 @@ func (s *signer) SignData(data []byte) string {
 
 func InitSigner(key string) (*signer, error) {
 	singleSigner = &signer{
-		key:       key,
-		is_inited: (key != ""),
+		key:      key,
+		isInited: (key != ""),
 	}
 
 	return GetSigner()
@@ -81,7 +81,7 @@ func (s *SignedWriter) Write(p []byte) (int, error) {
 func SignHandle(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		signer, _ := GetSigner()
-		if !signer.is_inited {
+		if !signer.isInited {
 			// еслинет ключа шифрования ничего не днлаем, передаём управление
 			// дальше без изменений
 			logger.Warn("No crypto key specified")

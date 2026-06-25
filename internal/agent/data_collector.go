@@ -80,7 +80,7 @@ func NewDataCollector() *DataCollector {
 		"PollCount":     *NewCounter("PollCount", func() int64 { return 1.0 }),
 		"RandomValue":   *NewGauge("RandomValue", func() float64 { return rand.Float64() }),
 		"TotalMemory":   *NewGauge("TotalMemory", func() float64 { return float64(memUsage.Total) }),
-		"FreeMemory":    *NewGauge("AvailableMemory", func() float64 { return float64(memUsage.Free) }),
+		"FreeMemory":    *NewGauge("FreeMemory", func() float64 { return float64(memUsage.Free) }),
 	}
 
 	for n, _ := range cpuUsage {
