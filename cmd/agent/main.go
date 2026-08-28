@@ -1,17 +1,20 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/caarlos0/env/v6"
 	"github.com/e-l-l-a-r/monitoring/internal/agent"
 	"github.com/e-l-l-a-r/monitoring/internal/compressor"
+	"github.com/e-l-l-a-r/monitoring/internal/crypto"
 	"github.com/e-l-l-a-r/monitoring/internal/logger"
 	"github.com/e-l-l-a-r/monitoring/internal/model"
 	"github.com/spf13/pflag"
@@ -22,6 +25,8 @@ type config struct {
 	PollInterval   uint   `env:"POLL_INTERVAL"`
 	ReportInterval uint   `env:"REPORT_INTERVAL"`
 	LogLevel       string `env:"LOG_LEVEL"`
+	Key            string `env:"KEY"`
+	RateLimit      uint   `env:"RATE_LIMIT"`
 }
 
 func parseFlags() {
@@ -42,8 +47,12 @@ func getConfig() (result config) {
 		"number of seconds to update metrics")
 	var reportInterval = pflag.UintP("report-interval", "r", 10,
 		"number of seconds to send metrics to server")
-	var flagLogLevel = pflag.StringP("log-level", "l", "Info",
+	var flagLogLevel = pflag.StringP("log-level", "v", "Info",
 		"log level, may be Debug, Info (default), Warning, Error")
+	var flagKey = pflag.StringP("key", "k", "",
+		"Key for signing the requests")
+	var flagRateLimit = pflag.UintP("rate-limit", "l", 0,
+		"Rate limit for requests")
 
 	err := env.Parse(&result)
 	if err != nil {
@@ -68,6 +77,14 @@ func getConfig() (result config) {
 		result.LogLevel = *flagLogLevel
 	}
 
+	if result.Key == "" {
+		result.Key = *flagKey
+	}
+
+	if result.RateLimit == 0 {
+		result.RateLimit = *flagRateLimit
+	}
+
 	return
 }
 
@@ -88,6 +105,7 @@ func sendData(client *http.Client, log Logger, url string, val interface{}) erro
 		log.WarnMsg("error while compressing data: ", err, ". Send uncompressed.")
 		isCompressed = false
 	}
+	reader, sign, err := crypto.NewSegnedReader(reader)
 	request, err := http.NewRequest(http.MethodPost, url, reader)
 	if err != nil {
 		log.WarnMsg(err)
@@ -97,29 +115,16 @@ func sendData(client *http.Client, log Logger, url string, val interface{}) erro
 		request.Header.Set("Content-Encoding", "gzip")
 	}
 
+	if sign != "" {
+		request.Header.Set("HashSHA256", sign)
+	}
+
 	_, err = log.DoRequestWithLog(client, request)
 	return err
 }
 
-func main() {
+func runSync(conf config, mon *agent.DataCollector, client *http.Client, log Logger) error {
 	var counter uint // счетчик не может быть меньше нуля
-
-	conf := getConfig()
-	log, err := logger.InitLogger(conf.LogLevel)
-
-	if err != nil {
-		logger.Fatal(err)
-	}
-
-	log.InfoMsg("Connect to server ", conf.Address,
-		"pollInterval: ", conf.PollInterval,
-		"reportInterval: ", conf.ReportInterval)
-
-	mon := agent.NewDataCollector()
-	client := http.Client{
-		Timeout: time.Second * 1, // интервал ожидания: 1 секунда
-	}
-
 	for {
 		mon.UpdMetrics()
 		// отправляем данные только по достижении счетчиком заданного значения
@@ -133,7 +138,7 @@ func main() {
 				values = append(values, v.Metrics)
 			}
 			err := logger.ExecuteWithRetryNoResult(func(args ...interface{}) error {
-				return sendData(&client, log, url, values)
+				return sendData(client, log, url, values)
 			})
 			errs = append(errs, err)
 			if err == nil {
@@ -144,7 +149,7 @@ func main() {
 				for key, val := range vals {
 					url := fmt.Sprintf("http://%s/update/", conf.Address)
 					err := logger.ExecuteWithRetryNoResult(func(args ...interface{}) error {
-						return sendData(&client, log, url, val.Metrics)
+						return sendData(client, log, url, val.Metrics)
 					})
 					errs = append(errs, err)
 					if err == nil {
@@ -162,4 +167,77 @@ func main() {
 		time.Sleep(time.Duration(conf.PollInterval) * time.Second)
 		counter += 1
 	}
+}
+
+func async_sender(url string, data <-chan agent.ChannaledMetric,
+	mon *agent.DataCollector, client *http.Client, log Logger, wg *sync.WaitGroup) {
+	defer wg.Done()
+	for val := range data {
+		var errs []error
+		data, err := json.Marshal(val)
+		if err != nil {
+			continue
+		}
+		request, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(data))
+		if err != nil {
+			log.WarnMsg(err)
+		}
+		request.Header.Set("Content-Type", "application/json")
+
+		err = logger.ExecuteWithRetryNoResult(func(args ...interface{}) error {
+			return sendData(client, log, url, val.Metrics)
+		})
+		errs = append(errs, err)
+		if err == nil {
+			mon.OnSuccessSent(val.Key)
+		}
+	}
+}
+
+func main() {
+	conf := getConfig()
+	log, err := logger.InitLogger(conf.LogLevel)
+
+	if err != nil {
+		logger.Fatal(err)
+	}
+
+	log.InfoMsg("Connect to server ", conf.Address,
+		"pollInterval: ", conf.PollInterval,
+		"reportInterval: ", conf.ReportInterval)
+
+	mon := agent.NewDataCollector()
+	client := http.Client{
+		Timeout: time.Second * 1, // интервал ожидания: 1 секунда
+	}
+
+	_, err = crypto.InitSigner(conf.Key)
+	if err != nil {
+		logger.Fatal(err)
+	}
+
+	//Запускаем синхронную отправку данных на сервер
+	if conf.RateLimit == 0 {
+		err = runSync(conf, mon, &client, log)
+		if err != nil {
+			logger.Fatal(err)
+		}
+		os.Exit(0)
+	}
+
+	done_ch := make(chan struct{})
+	defer close(done_ch)
+	data_ch := mon.MetricsReader(done_ch, conf.PollInterval)
+
+	url := fmt.Sprintf("http://%s/update/", conf.Address)
+
+	var w uint
+	var wg sync.WaitGroup
+	for w = 0; w < conf.RateLimit; w++ {
+		wg.Add(1)
+		go async_sender(url, data_ch, mon, &client, log, &wg)
+	}
+
+	wg.Wait()
+
 }
