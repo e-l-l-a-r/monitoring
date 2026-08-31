@@ -5,11 +5,12 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/e-l-l-a-r/monitoring/internal/logger"
-	"github.com/e-l-l-a-r/monitoring/internal/model"
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/jackc/pgx/v5/stdlib"
+
+	"github.com/e-l-l-a-r/monitoring/internal/logger"
+	"github.com/e-l-l-a-r/monitoring/internal/model"
 
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 )

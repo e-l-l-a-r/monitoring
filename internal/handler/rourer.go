@@ -8,13 +8,14 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/go-chi/chi/v5"
+	"go.uber.org/zap"
+
 	"github.com/e-l-l-a-r/monitoring/internal/auditor"
 	"github.com/e-l-l-a-r/monitoring/internal/compressor"
 	"github.com/e-l-l-a-r/monitoring/internal/logger"
 	"github.com/e-l-l-a-r/monitoring/internal/model"
 	"github.com/e-l-l-a-r/monitoring/internal/repository"
-	"github.com/go-chi/chi/v5"
-	"go.uber.org/zap"
 )
 
 type Storage interface {

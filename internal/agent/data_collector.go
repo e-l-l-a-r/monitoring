@@ -6,10 +6,11 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/e-l-l-a-r/monitoring/internal/logger"
-	"github.com/e-l-l-a-r/monitoring/internal/model"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/mem"
+
+	"github.com/e-l-l-a-r/monitoring/internal/logger"
+	"github.com/e-l-l-a-r/monitoring/internal/model"
 )
 
 type metric struct {

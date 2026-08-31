@@ -9,13 +9,14 @@ import (
 	"time"
 
 	"github.com/caarlos0/env/v6"
+	"github.com/spf13/pflag"
+
 	"github.com/e-l-l-a-r/monitoring/internal/auditor"
 	"github.com/e-l-l-a-r/monitoring/internal/compressor"
 	"github.com/e-l-l-a-r/monitoring/internal/crypto"
 	"github.com/e-l-l-a-r/monitoring/internal/handler"
 	"github.com/e-l-l-a-r/monitoring/internal/logger"
 	"github.com/e-l-l-a-r/monitoring/internal/repository"
-	"github.com/spf13/pflag"
 )
 
 type Config struct {
