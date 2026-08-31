@@ -139,6 +139,7 @@ func massAddMetadata(ctx context.Context, tx *sql.Tx, metadata []metadata) error
 	if err != nil {
 		return logger.NewTracedError("Error preparing statement: ", err)
 	}
+	defer stmt.Close()
 	for _, m := range metadata {
 		_, err := stmt.ExecContext(ctx, m.name, m.mtype)
 		if err != nil {
@@ -160,6 +161,7 @@ func (sqls *SqlStorage) massAddValues(ctx context.Context, tx *sql.Tx, values []
 	if err != nil {
 		return logger.NewTracedError("Error preparing statement for gauge values: ", err)
 	}
+	defer stmt_gauge.Close()
 	stmt_counter, err := tx.PrepareContext(ctx, `
 		WITH meta as (select *
 					  from metrics_meta
@@ -171,6 +173,7 @@ func (sqls *SqlStorage) massAddValues(ctx context.Context, tx *sql.Tx, values []
 	if err != nil {
 		return logger.NewTracedError("Error preparing statement for counter values: ", err)
 	}
+	defer stmt_counter.Close()
 	for _, metric := range values {
 		err := sqls.MemStorage.AddMetricData(ctx, metric)
 		if err != nil {
@@ -198,8 +201,11 @@ func (sqls *SqlStorage) AddBatchMetricsData(ctx context.Context, metrics []model
 			logger.Info("Add new metadata: ", metric.ID)
 		}
 	}
-	tx, _ := sqls.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
-	err := massAddMetadata(ctx, tx, new_metadata)
+	tx, err := sqls.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
+	if err != nil {
+		return logger.NewTracedError("Error starting transaction: ", err)
+	}
+	err = massAddMetadata(ctx, tx, new_metadata)
 	if err != nil {
 		tx.Rollback()
 		return logger.NewTracedError("Error adding metadata: ", err)
@@ -209,7 +215,9 @@ func (sqls *SqlStorage) AddBatchMetricsData(ctx context.Context, metrics []model
 		tx.Rollback()
 		return logger.NewTracedError("Error adding values: ", err)
 	}
-	tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return logger.NewTracedError("Error committing transaction: ", err)
+	}
 	return nil
 }
 

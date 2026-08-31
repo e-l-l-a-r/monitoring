@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/e-l-l-a-r/monitoring/internal/auditor"
 	"github.com/e-l-l-a-r/monitoring/internal/compressor"
 	"github.com/e-l-l-a-r/monitoring/internal/logger"
 	"github.com/e-l-l-a-r/monitoring/internal/model"
@@ -119,17 +120,10 @@ func badRequest(resp http.ResponseWriter, _ *http.Request) {
 	http.Error(resp, "No value", http.StatusBadRequest)
 }
 
-var (
-	routesInstalled bool
-	rtr             *chi.Mux
-)
+func GetRouter(storage Storage, audit auditor.Publisher) *chi.Mux {
+	rtr := chi.NewRouter()
 
-func GetRouter(storage Storage) *chi.Mux {
-	if routesInstalled {
-		return rtr // Return existing router
-	}
-	routesInstalled = true
-	rtr = chi.NewRouter()
+	rtr.Use(auditor.WithPublisher(audit))
 
 	rtr.Get("/", logger.ServerRequestLogger(listMetrics(storage)))
 	rtr.Post("/", logger.ServerRequestLogger(incorrectApi))
@@ -170,6 +164,12 @@ func updMetric(storage Storage) http.HandlerFunc {
 			return
 		}
 
+		audit, ok := auditor.FromContext(ctx)
+		if ok {
+			data := auditor.NewAuditData([]string{chi.URLParam(req, "name")}, req.RemoteAddr)
+			audit.Notify(&data)
+		}
+
 		storage.SyncIfNeed(ctx)
 
 		resp.Write([]byte(""))
@@ -183,7 +183,7 @@ func updJsonMetric(storage Storage) http.HandlerFunc {
 
 		var metric model.Metrics
 
-		dataReader, err := compressor.RequesrReader(req)
+		dataReader, err := compressor.RequestReader(req)
 		if err != nil {
 			http.Error(resp, err.Error(), http.StatusBadRequest)
 			return
@@ -207,6 +207,12 @@ func updJsonMetric(storage Storage) http.HandlerFunc {
 			return
 		}
 
+		audit, ok := auditor.FromContext(ctx)
+		if ok {
+			data := auditor.NewAuditData([]string{metric.ID}, req.RemoteAddr)
+			audit.Notify(&data)
+		}
+
 		storage.SyncIfNeed(ctx)
 
 		resp.Write([]byte(""))
@@ -219,7 +225,7 @@ func updBatchMetrics(storage Storage) http.HandlerFunc {
 
 		var metrics []model.Metrics
 
-		dataReader, err := compressor.RequesrReader(req)
+		dataReader, err := compressor.RequestReader(req)
 		if err != nil {
 			http.Error(resp, err.Error(), http.StatusBadRequest)
 			return
@@ -241,6 +247,16 @@ func updBatchMetrics(storage Storage) http.HandlerFunc {
 		if err != nil {
 			http.Error(resp, err.Error(), http.StatusBadRequest)
 			return
+		}
+
+		audit, ok := auditor.FromContext(ctx)
+		if ok {
+			metricNames := make([]string, len(metrics))
+			for num, metric := range metrics {
+				metricNames[num] = metric.ID
+			}
+			data := auditor.NewAuditData(metricNames, req.RemoteAddr)
+			audit.Notify(&data)
 		}
 
 		storage.SyncIfNeed(ctx)

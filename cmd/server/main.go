@@ -4,10 +4,12 @@ import (
 	"context"
 	"flag"
 	"net/http"
+	_ "net/http/pprof" // подключаем пакет pprof
 	"os"
 	"time"
 
 	"github.com/caarlos0/env/v6"
+	"github.com/e-l-l-a-r/monitoring/internal/auditor"
 	"github.com/e-l-l-a-r/monitoring/internal/compressor"
 	"github.com/e-l-l-a-r/monitoring/internal/crypto"
 	"github.com/e-l-l-a-r/monitoring/internal/handler"
@@ -24,6 +26,8 @@ type Config struct {
 	Restore         bool   `env:"RESTORE"`
 	DbConnSrting    string `env:"DATABASE_DSN"`
 	Key             string `env:"KEY"`
+	AuditFile       string `env:"AUDIT_FILE"`
+	AuditUrl        string `env:"AUDIT_URL"`
 }
 
 func parseFlags() {
@@ -52,6 +56,10 @@ func getConfig() (result Config) {
 		"database connection string")
 	var flagKey = pflag.StringP("key", "k", "",
 		"Key for signing the requests")
+	var flagAuditFile = pflag.StringP("audit-file", "c", "",
+		"file to store requests log")
+	var flagAuditUrl = pflag.StringP("audit-url", "u", "",
+		"url to send requests log")
 
 	err := env.Parse(&result)
 
@@ -78,6 +86,12 @@ func getConfig() (result Config) {
 	}
 	if result.DbConnSrting == "" {
 		result.DbConnSrting = *flagDbConnSrting
+	}
+	if result.AuditFile == "" {
+		result.AuditFile = *flagAuditFile
+	}
+	if result.AuditUrl == "" {
+		result.AuditUrl = *flagAuditUrl
 	}
 
 	if result.Key == "" {
@@ -149,7 +163,17 @@ func run() error {
 		logger.Fatal(err)
 	}
 
-	router := handler.GetRouter(storage)
+	audit := auditor.NewAuditor()
+
+	if conf.AuditFile != "" {
+		audit.Register(auditor.NewFileAuditor(conf.AuditFile))
+	}
+	if conf.AuditUrl != "" {
+		audit.Register(auditor.NewUrlAuditor(conf.AuditUrl))
+	}
+
+	router := handler.GetRouter(storage, audit)
+
 	err = http.ListenAndServe(conf.Address, crypto.SignHandle(compressor.GzipHandle(router)))
 	if err != nil {
 		return err
