@@ -6,18 +6,18 @@ import (
 )
 
 type observer interface {
-	update(*auditData) error
+	update(*AuditData) error
 	getId() string
 }
 
-type auditData struct {
+type AuditData struct {
 	Ts        int64    `json:"ts"`
 	Metrics   []string `json:"metrics"`
 	IpAddress string   `json:"ip_address"`
 }
 
-func NewAuditData(metrics []string, ip string) auditData {
-	return auditData{
+func NewAuditData(metrics []string, ip string) AuditData {
+	return AuditData{
 		Ts:        time.Now().Unix(),
 		Metrics:   metrics,
 		IpAddress: ip,
@@ -29,7 +29,7 @@ type baseObserver struct {
 	id      string
 }
 
-func (o *baseObserver) prepareData(data *auditData) error {
+func (o *baseObserver) prepareData(data *AuditData) error {
 	bytesData, err := json.Marshal(data)
 	if err != nil {
 		return err

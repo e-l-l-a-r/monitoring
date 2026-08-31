@@ -7,9 +7,23 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/e-l-l-a-r/monitoring/internal/logger"
 )
+
+var writerPool = sync.Pool{
+	New: func() any {
+		w, _ := gzip.NewWriterLevel(io.Discard, gzip.BestSpeed)
+		return w
+	},
+}
+
+var readerPool = sync.Pool{
+	New: func() any {
+		return new(gzip.Reader)
+	},
+}
 
 type compressionInfo struct {
 	compressedSize int
@@ -38,6 +52,7 @@ func (w gzipWriter) Write(b []byte) (int, error) {
 func (g gzipReadCloser) Close() error {
 	// Закрываем gzip reader и возвращаем его в пул
 	err1 := g.Reader.Close()
+	readerPool.Put(g.Reader)
 	// Закрываем оригинальное тело запроса
 	err2 := g.originalBody.Close()
 
@@ -50,8 +65,10 @@ func (g gzipReadCloser) Close() error {
 func GzipHandle(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.EqualFold(r.Header.Get("Content-Encoding"), "gzip") {
-			dataReader, err := gzip.NewReader(r.Body)
+			dataReader := readerPool.Get().(*gzip.Reader)
+			err := dataReader.Reset(r.Body)
 			if err != nil {
+				readerPool.Put(dataReader)
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
@@ -74,13 +91,12 @@ func GzipHandle(next http.Handler) http.Handler {
 		}
 
 		// создаём gzip.Writer поверх текущего w
-		gz, err := gzip.NewWriterLevel(w, gzip.BestSpeed)
-		if err != nil {
-			io.WriteString(w, err.Error())
-			logger.Warn("Error while creating GZIP writer")
-			return
-		}
-		defer gz.Close()
+		gz := writerPool.Get().(*gzip.Writer)
+		gz.Reset(w)
+		defer func() {
+			gz.Close()
+			writerPool.Put(gz)
+		}()
 
 		logger.Info("Set Content-Encoding to gzip")
 		w.Header().Set("Content-Encoding", "gzip")
@@ -115,14 +131,18 @@ func NewGzippedReader(data []byte) (io.Reader, error) {
 	return &buf, nil
 }
 
-func RequesrReader(req *http.Request) (io.Reader, error) {
+func RequestReader(req *http.Request) (io.Reader, error) {
 	if req.Header.Get("Content-Encoding") == "gzip" {
-		gz, err := gzip.NewReader(req.Body)
+		dataReader := readerPool.Get().(*gzip.Reader)
+		err := dataReader.Reset(req.Body)
 		if err != nil {
+			readerPool.Put(dataReader)
 			logger.Info("cannot unzip request body: ", err)
 			return nil, err
 		}
-		return gz, nil
+		req.Body = gzipReadCloser{originalBody: req.Body, Reader: dataReader}
+		req.Header.Del("Content-Encoding")
+		req.Header.Del("Content-Length")
 	}
 	return req.Body, nil
 }

@@ -8,7 +8,7 @@ import (
 type Publisher interface {
 	Register(observer)
 	Deregister(observer)
-	Notify(*auditData)
+	Notify(*AuditData)
 }
 
 type auditor struct {
@@ -26,7 +26,7 @@ func (a *auditor) Deregister(o observer) {
 	delete(a.observers, o.getId())
 }
 
-func (a *auditor) Notify(data *auditData) {
+func (a *auditor) Notify(data *AuditData) {
 	for _, observer := range a.observers {
 		observer.update(data)
 	}
@@ -47,7 +47,7 @@ func WithPublisher(p Publisher) func(next http.Handler) http.Handler {
 	}
 }
 
-func FromContext(ctx context.Context) (auditor, bool) {
+func FromContext(ctx context.Context) (*auditor, bool) {
 	a, ok := ctx.Value(auditorKey{}).(*auditor)
-	return *a, ok
+	return a, ok
 }

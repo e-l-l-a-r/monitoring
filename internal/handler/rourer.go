@@ -120,17 +120,8 @@ func badRequest(resp http.ResponseWriter, _ *http.Request) {
 	http.Error(resp, "No value", http.StatusBadRequest)
 }
 
-var (
-	routesInstalled bool
-	rtr             *chi.Mux
-)
-
 func GetRouter(storage Storage, audit auditor.Publisher) *chi.Mux {
-	if routesInstalled {
-		return rtr // Return existing router
-	}
-	routesInstalled = true
-	rtr = chi.NewRouter()
+	rtr := chi.NewRouter()
 
 	rtr.Use(auditor.WithPublisher(audit))
 
@@ -175,7 +166,8 @@ func updMetric(storage Storage) http.HandlerFunc {
 
 		audit, ok := auditor.FromContext(ctx)
 		if ok {
-			audit.Notify(new(auditor.NewAuditData([]string{chi.URLParam(req, "name")}, req.RemoteAddr)))
+			data := auditor.NewAuditData([]string{chi.URLParam(req, "name")}, req.RemoteAddr)
+			audit.Notify(&data)
 		}
 
 		storage.SyncIfNeed(ctx)
@@ -191,7 +183,7 @@ func updJsonMetric(storage Storage) http.HandlerFunc {
 
 		var metric model.Metrics
 
-		dataReader, err := compressor.RequesrReader(req)
+		dataReader, err := compressor.RequestReader(req)
 		if err != nil {
 			http.Error(resp, err.Error(), http.StatusBadRequest)
 			return
@@ -217,7 +209,8 @@ func updJsonMetric(storage Storage) http.HandlerFunc {
 
 		audit, ok := auditor.FromContext(ctx)
 		if ok {
-			audit.Notify(new(auditor.NewAuditData([]string{metric.ID}, req.RemoteAddr)))
+			data := auditor.NewAuditData([]string{metric.ID}, req.RemoteAddr)
+			audit.Notify(&data)
 		}
 
 		storage.SyncIfNeed(ctx)
@@ -232,7 +225,7 @@ func updBatchMetrics(storage Storage) http.HandlerFunc {
 
 		var metrics []model.Metrics
 
-		dataReader, err := compressor.RequesrReader(req)
+		dataReader, err := compressor.RequestReader(req)
 		if err != nil {
 			http.Error(resp, err.Error(), http.StatusBadRequest)
 			return
@@ -262,7 +255,8 @@ func updBatchMetrics(storage Storage) http.HandlerFunc {
 			for num, metric := range metrics {
 				metricNames[num] = metric.ID
 			}
-			audit.Notify(new(auditor.NewAuditData(metricNames, req.RemoteAddr)))
+			data := auditor.NewAuditData(metricNames, req.RemoteAddr)
+			audit.Notify(&data)
 		}
 
 		storage.SyncIfNeed(ctx)

@@ -20,7 +20,7 @@ func NewFileAuditor(file string) *fileAuditor {
 	}
 }
 
-func (f *fileAuditor) update(data *auditData) error {
+func (f *fileAuditor) update(data *AuditData) error {
 	f.baseObserver.prepareData(data)
 	out, err := os.OpenFile(f.file, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {

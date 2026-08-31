@@ -167,6 +167,9 @@ func (ms *MemStorage) GetMetricValue(ctx context.Context, metric *model.Metrics)
 }
 
 func (ms *MemStorage) syncToFile(ctx context.Context) error {
+	if ms.SyncFileName == "" {
+		return nil
+	}
 	file, err := os.OpenFile(ms.SyncFileName, os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return logger.NewTracedError("Error opening file "+ms.SyncFileName+": ", err)
@@ -183,6 +186,9 @@ func (ms *MemStorage) syncToFile(ctx context.Context) error {
 }
 
 func (ms *MemStorage) RestoreFromFile(ctx context.Context) error {
+	if ms.SyncFileName == "" {
+		return nil
+	}
 	file, err := os.OpenFile(ms.SyncFileName, os.O_CREATE|os.O_RDONLY, 0644)
 	if err != nil {
 		return logger.NewTracedError("Error opening file "+ms.SyncFileName+": ", err)

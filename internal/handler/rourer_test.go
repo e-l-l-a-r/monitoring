@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/e-l-l-a-r/monitoring/internal/auditor"
 	"github.com/e-l-l-a-r/monitoring/internal/repository"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -27,7 +28,7 @@ func testRequest(t *testing.T, ts *httptest.Server, method,
 }
 
 func TestUpdateHandler_InvalidPath(t *testing.T) {
-	ts := httptest.NewServer(GetRouter(repository.NewMemStorage(300, "router_testmetrics.json")))
+	ts := httptest.NewServer(GetRouter(repository.NewMemStorage(300, "router_testmetrics.json"), auditor.NewAuditor()))
 	defer ts.Close()
 
 	tests := []struct {
@@ -54,7 +55,7 @@ func TestUpdateHandler_InvalidPath(t *testing.T) {
 }
 
 func TestUpdateHandler_ValidRequest(t *testing.T) {
-	ts := httptest.NewServer(GetRouter(repository.NewMemStorage(300, "router_testmetrics.json")))
+	ts := httptest.NewServer(GetRouter(repository.NewMemStorage(300, "router_testmetrics.json"), auditor.NewAuditor()))
 	defer ts.Close()
 	tests := []struct {
 		name   string

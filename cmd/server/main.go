@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"net/http"
+	_ "net/http/pprof" // подключаем пакет pprof
 	"os"
 	"time"
 

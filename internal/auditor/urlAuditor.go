@@ -28,7 +28,7 @@ func NewUrlAuditor(url string) *UrlAuditor {
 	}
 }
 
-func (u *UrlAuditor) update(data *auditData) error {
+func (u *UrlAuditor) update(data *AuditData) error {
 
 	request, err := http.NewRequest(http.MethodPost, u.url, strings.NewReader(u.strData))
 	if err != nil {
