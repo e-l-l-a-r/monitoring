@@ -1,25 +1,28 @@
+// Пакет model содержит модели данных, используемые в проекте.
 package model
 
 const (
+	// Counter представляет тип метрики-счетчика.
 	Counter = "counter"
-	Gauge   = "gauge"
+	// Gauge представляет тип метрики-шкалы.
+	Gauge = "gauge"
 )
 
+// AllTypes содержит список всех поддерживаемых типов метрик.
 var AllTypes = [...]string{Gauge, Counter}
 
-// NOTE: Не усложняем пример, вводя иерархическую вложенность структур.
-// Органичиваясь плоской моделью.
-// Delta и Value объявлены через указатели,
-// что бы отличать значение "0", от не заданного значения
-// и соответственно не кодировать в структуру.
+// Metrics представляет модель данных для метрики.
+// Содержит идентификатор, тип и значение (Delta для счетчика, Value для шкалы).
+// Delta и Value объявлены через указатели, чтобы отличать значение 0 от не заданного значения.
 type Metrics struct {
-	ID    string   `json:"id"`
-	MType string   `json:"type"`
-	Delta *int64   `json:"delta,omitempty"`
-	Value *float64 `json:"value,omitempty"`
-	Hash  string   `json:"hash,omitempty"`
+	ID    string   `json:"id"`              // Идентификатор метрики
+	MType string   `json:"type"`            // Тип метрики (gauge или counter)
+	Delta *int64   `json:"delta,omitempty"` // Значение метрики в случае передачи counter
+	Value *float64 `json:"value,omitempty"` // Значение метрики в случае передачи gauge
+	Hash  string   `json:"hash,omitempty"`  // Хеш-сумма метрики
 }
 
+// NewCounterMetrics создает новый экземпляр Metrics для типа counter.
 func NewCounterMetrics(name string, value int64) Metrics {
 	return Metrics{
 		ID:    name,
@@ -28,6 +31,7 @@ func NewCounterMetrics(name string, value int64) Metrics {
 	}
 }
 
+// NewGaugeMetrics создает новый экземпляр Metrics для типа gauge.
 func NewGaugeMetrics(name string, value float64) Metrics {
 	return Metrics{
 		ID:    name,
@@ -36,6 +40,8 @@ func NewGaugeMetrics(name string, value float64) Metrics {
 	}
 }
 
+// NewMetrics создает новый экземпляр Metrics с заданным именем и типом.
+// Если тип неизвестен, возвращает Metrics только с ID и типом.
 func NewMetrics(name string, mtype string) Metrics {
 	switch mtype {
 	case Counter:

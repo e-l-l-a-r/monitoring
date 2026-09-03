@@ -6,28 +6,32 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/e-l-l-a-r/monitoring/internal/repository"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/e-l-l-a-r/monitoring/internal/auditor"
+	"github.com/e-l-l-a-r/monitoring/internal/repository"
 )
 
 func testRequest(t *testing.T, ts *httptest.Server, method,
-	path string) (*http.Response, string) {
+	path string) (int, string) {
 	req, err := http.NewRequest(method, ts.URL+path, nil)
 	require.NoError(t, err)
 
 	resp, err := ts.Client().Do(req)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	respBody, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 
-	return resp, string(respBody)
+	return resp.StatusCode, string(respBody)
 }
 
 func TestUpdateHandler_InvalidPath(t *testing.T) {
-	ts := httptest.NewServer(GetRouter(repository.NewMemStorage(300, "router_testmetrics.json")))
+	ts := httptest.NewServer(GetRouter(repository.NewMemStorage(300, "router_testmetrics.json"), auditor.NewAuditor()))
 	defer ts.Close()
 
 	tests := []struct {
@@ -44,9 +48,9 @@ func TestUpdateHandler_InvalidPath(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resp, get := testRequest(t, ts, http.MethodPost, tt.path)
+			statusCode, get := testRequest(t, ts, http.MethodPost, tt.path)
 
-			assert.Equal(t, tt.expected, resp.StatusCode)
+			assert.Equal(t, tt.expected, statusCode)
 			assert.Equal(t, tt.errMessage+"\n", get)
 
 		})
@@ -54,7 +58,7 @@ func TestUpdateHandler_InvalidPath(t *testing.T) {
 }
 
 func TestUpdateHandler_ValidRequest(t *testing.T) {
-	ts := httptest.NewServer(GetRouter(repository.NewMemStorage(300, "router_testmetrics.json")))
+	ts := httptest.NewServer(GetRouter(repository.NewMemStorage(300, "router_testmetrics.json"), auditor.NewAuditor()))
 	defer ts.Close()
 	tests := []struct {
 		name   string
@@ -77,9 +81,9 @@ func TestUpdateHandler_ValidRequest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resp, get := testRequest(t, ts, tt.method, tt.path)
+			statusCode, get := testRequest(t, ts, tt.method, tt.path)
 
-			assert.Equal(t, http.StatusOK, resp.StatusCode)
+			assert.Equal(t, http.StatusOK, statusCode)
 			assert.Equal(t, tt.result, get)
 		})
 	}

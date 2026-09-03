@@ -1,3 +1,4 @@
+// Пакет handler предоставляет HTTP-обработчики для управления метриками.
 package handler
 
 import (
@@ -8,21 +9,31 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/go-chi/chi/v5"
+	"go.uber.org/zap"
+
+	"github.com/e-l-l-a-r/monitoring/internal/auditor"
 	"github.com/e-l-l-a-r/monitoring/internal/compressor"
 	"github.com/e-l-l-a-r/monitoring/internal/logger"
 	"github.com/e-l-l-a-r/monitoring/internal/model"
 	"github.com/e-l-l-a-r/monitoring/internal/repository"
-	"github.com/go-chi/chi/v5"
-	"go.uber.org/zap"
 )
 
+// Storage определяет интерфейс для хранилища метрик, необходимого хендлерам.
 type Storage interface {
+	// AddData добавляет данные метрики.
 	AddData(ctx context.Context, name string, mtype string, value interface{}) error
+	// AddMetricData добавляет данные на основе модели Metrics.
 	AddMetricData(ctx context.Context, metrics model.Metrics) error
+	// AddBatchMetricsData добавляет пакет метрик.
 	AddBatchMetricsData(ctx context.Context, metrics []model.Metrics) error
+	// GetValues возвращает все накопленные метрики.
 	GetValues(ctx context.Context) map[string]model.Metrics
+	// GetValue возвращает значение конкретной метрики.
 	GetValue(ctx context.Context, name string, mtype string) (float64, error)
+	// GetMetricValue заполняет структуру Metrics актуальным значением.
 	GetMetricValue(ctx context.Context, metric *model.Metrics) error
+	// SyncIfNeed выполняет синхронизацию данных, если это необходимо.
 	SyncIfNeed(ctx context.Context) error
 }
 
@@ -107,7 +118,7 @@ func getMetric(storage Storage) http.HandlerFunc {
 	}
 }
 
-func incorrectApi(resp http.ResponseWriter, _ *http.Request) {
+func incorrectAPI(resp http.ResponseWriter, _ *http.Request) {
 	http.Error(resp, "Incorrect API", http.StatusBadRequest)
 }
 
@@ -119,31 +130,25 @@ func badRequest(resp http.ResponseWriter, _ *http.Request) {
 	http.Error(resp, "No value", http.StatusBadRequest)
 }
 
-var (
-	routesInstalled bool
-	rtr             *chi.Mux
-)
+// GetRouter настраивает и возвращает chi.Router со всеми эндпоинтами.
+func GetRouter(storage Storage, audit auditor.Publisher) *chi.Mux {
+	rtr := chi.NewRouter()
 
-func GetRouter(storage Storage) *chi.Mux {
-	if routesInstalled {
-		return rtr // Return existing router
-	}
-	routesInstalled = true
-	rtr = chi.NewRouter()
+	rtr.Use(auditor.WithPublisher(audit))
 
 	rtr.Get("/", logger.ServerRequestLogger(listMetrics(storage)))
-	rtr.Post("/", logger.ServerRequestLogger(incorrectApi))
+	rtr.Post("/", logger.ServerRequestLogger(incorrectAPI))
 
-	rtr.Post("/update/", logger.ServerRequestLogger(updJsonMetric(storage)))
+	rtr.Post("/update/", logger.ServerRequestLogger(updJSONMetric(storage)))
 	rtr.Post("/updates/", logger.ServerRequestLogger(updBatchMetrics(storage)))
 	rtr.Post("/update/{mtype}/", logger.ServerRequestLogger(notFound))
 	rtr.Post("/update/{mtype}/{name}/", logger.ServerRequestLogger(badRequest))
 	rtr.Post("/update/{mtype}/{name}/{val}", logger.ServerRequestLogger(updMetric(storage)))
 
 	rtr.Get("/value/{mtype}/{name}", logger.ServerRequestLogger(getMetric(storage)))
-	rtr.Post("/value/", logger.ServerRequestLogger(getJsonMetric(storage)))
+	rtr.Post("/value/", logger.ServerRequestLogger(getJSONMetric(storage)))
 
-	rtr.Get("/ping", logger.ServerRequestLogger(pingDb(storage)))
+	rtr.Get("/ping", logger.ServerRequestLogger(pingDB(storage)))
 
 	return rtr
 }
@@ -170,6 +175,12 @@ func updMetric(storage Storage) http.HandlerFunc {
 			return
 		}
 
+		audit, ok := auditor.FromContext(ctx)
+		if ok {
+			data := auditor.NewAuditData([]string{chi.URLParam(req, "name")}, req.RemoteAddr)
+			audit.Notify(&data)
+		}
+
 		storage.SyncIfNeed(ctx)
 
 		resp.Write([]byte(""))
@@ -177,13 +188,13 @@ func updMetric(storage Storage) http.HandlerFunc {
 
 }
 
-func updJsonMetric(storage Storage) http.HandlerFunc {
+func updJSONMetric(storage Storage) http.HandlerFunc {
 	return func(resp http.ResponseWriter, req *http.Request) {
 		ctx := req.Context()
 
 		var metric model.Metrics
 
-		dataReader, err := compressor.RequesrReader(req)
+		dataReader, err := compressor.RequestReader(req)
 		if err != nil {
 			http.Error(resp, err.Error(), http.StatusBadRequest)
 			return
@@ -207,6 +218,12 @@ func updJsonMetric(storage Storage) http.HandlerFunc {
 			return
 		}
 
+		audit, ok := auditor.FromContext(ctx)
+		if ok {
+			data := auditor.NewAuditData([]string{metric.ID}, req.RemoteAddr)
+			audit.Notify(&data)
+		}
+
 		storage.SyncIfNeed(ctx)
 
 		resp.Write([]byte(""))
@@ -219,7 +236,7 @@ func updBatchMetrics(storage Storage) http.HandlerFunc {
 
 		var metrics []model.Metrics
 
-		dataReader, err := compressor.RequesrReader(req)
+		dataReader, err := compressor.RequestReader(req)
 		if err != nil {
 			http.Error(resp, err.Error(), http.StatusBadRequest)
 			return
@@ -243,13 +260,23 @@ func updBatchMetrics(storage Storage) http.HandlerFunc {
 			return
 		}
 
+		audit, ok := auditor.FromContext(ctx)
+		if ok {
+			metricNames := make([]string, len(metrics))
+			for num, metric := range metrics {
+				metricNames[num] = metric.ID
+			}
+			data := auditor.NewAuditData(metricNames, req.RemoteAddr)
+			audit.Notify(&data)
+		}
+
 		storage.SyncIfNeed(ctx)
 
 		resp.Write([]byte(""))
 	}
 }
 
-func getJsonMetric(storage Storage) http.HandlerFunc {
+func getJSONMetric(storage Storage) http.HandlerFunc {
 	return func(resp http.ResponseWriter, req *http.Request) {
 
 		ctx := req.Context()
@@ -275,11 +302,11 @@ func getJsonMetric(storage Storage) http.HandlerFunc {
 	}
 }
 
-func pingDb(storage Storage) http.HandlerFunc {
+func pingDB(storage Storage) http.HandlerFunc {
 	return func(resp http.ResponseWriter, req *http.Request) {
 		switch s := storage.(type) {
-		case *repository.SqlStorage:
-			// Здесь s имеет тип *repository.SqlStorage
+		case *repository.SQLStorage:
+			// Здесь s имеет тип *repository.SQLStorage
 			err := logger.ExecuteWithRetryNoResult(func(args ...interface{}) error {
 				return s.Ping()
 			})

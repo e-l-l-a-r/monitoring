@@ -5,8 +5,9 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/e-l-l-a-r/monitoring/internal/model"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/e-l-l-a-r/monitoring/internal/model"
 )
 
 var ms = NewMemStorage(0, "test_metrics.json")
