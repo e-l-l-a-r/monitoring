@@ -11,6 +11,7 @@ type fileAuditor struct {
 	file string
 }
 
+// NewFileAuditor создает нового наблюдателя, который записывает данные аудита в файл.
 func NewFileAuditor(file string) *fileAuditor {
 	return &fileAuditor{
 		file: file,

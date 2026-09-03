@@ -1,3 +1,4 @@
+// Пакет crypto предоставляет инструменты для подписи данных с использованием HMAC-SHA256.
 package crypto
 
 import (
@@ -12,21 +13,21 @@ import (
 	"github.com/e-l-l-a-r/monitoring/internal/logger"
 )
 
-type (
-	signer struct {
-		key      string
-		isInited bool
-	}
+// SignedWriter — обертка для http.ResponseWriter, выполняющая подпись передаваемых данных.
+type SignedWriter struct {
+	http.ResponseWriter
+	hash []byte
+}
 
-	SignedWriter struct {
-		http.ResponseWriter
-		hash []byte
-	}
-)
+type signer struct {
+	key      string
+	isInited bool
+}
 
 // Глобальная переменная для реализации работы синглтона
 var singleSigner *signer
 
+// GetSigner возвращает текущий экземпляр подписчика.
 func GetSigner() (*signer, error) {
 	if singleSigner == nil {
 		return nil, fmt.Errorf("no signer inited")
@@ -56,6 +57,7 @@ func (s *signer) SignData(data []byte) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
+// InitSigner инициализирует глобальный подписчик с секретным ключом.
 func InitSigner(key string) (*signer, error) {
 	singleSigner = &signer{
 		key:      key,
@@ -65,6 +67,7 @@ func InitSigner(key string) (*signer, error) {
 	return GetSigner()
 }
 
+// NewSignedWriter создает новый SignedWriter для автоматической подписи HTTP-ответов.
 func NewSignedWriter(w http.ResponseWriter) *SignedWriter {
 	s := new(SignedWriter)
 	s.ResponseWriter = w
@@ -78,6 +81,7 @@ func (s *SignedWriter) Write(p []byte) (int, error) {
 	return s.ResponseWriter.Write(p)
 }
 
+// SignHandle — middleware для проверки подписи входящих запросов и подписи исходящих ответов.
 func SignHandle(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		signer, _ := GetSigner()
@@ -119,6 +123,7 @@ func SignHandle(next http.Handler) http.Handler {
 	})
 }
 
+// NewSegnedReader вычисляет подпись для данных из Reader и возвращает новый Reader с теми же данными.
 func NewSegnedReader(r io.Reader) (io.Reader, string, error) {
 	sig, err := GetSigner()
 	if err != nil {

@@ -15,9 +15,11 @@ import (
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 )
 
+// SqlStorage предоставляет реализацию хранилища метрик в базе данных SQL.
+// Расширяет MemStorage, обеспечивая персистентность.
 type SqlStorage struct {
-	MemStorage
-	db *sql.DB
+	MemStorage         // Внутреннее хранилище в памяти для быстрого доступа
+	db         *sql.DB // Подключение к базе данных
 }
 
 type metadata struct {
@@ -25,6 +27,7 @@ type metadata struct {
 	mtype string
 }
 
+// NewSqlStorage создает новый экземпляр SqlStorage с подключением к БД.
 func NewSqlStorage(connectionStr string) (res *SqlStorage, err error) {
 	db, err := sql.Open("pgx", connectionStr)
 	if err != nil {
@@ -37,13 +40,17 @@ func NewSqlStorage(connectionStr string) (res *SqlStorage, err error) {
 	}, nil
 }
 
+// Close закрывает соединение с базой данных.
 func (sql *SqlStorage) Close() {
 	sql.db.Close()
 }
 
+// Ping проверяет доступность базы данных.
 func (sql *SqlStorage) Ping() error {
 	return sql.db.Ping()
 }
+
+// DoMigrate выполняет миграции базы данных.
 func (sql *SqlStorage) DoMigrate() error {
 	driver, err := postgres.WithInstance(sql.db, &postgres.Config{})
 	if err != nil {
@@ -222,6 +229,7 @@ func (sqls *SqlStorage) AddBatchMetricsData(ctx context.Context, metrics []model
 	return nil
 }
 
+// Restore загружает состояние метрик из базы данных в память.
 func (sqls *SqlStorage) Restore(ctx context.Context) error {
 	for _, mtype := range model.AllTypes {
 		tbl := ""

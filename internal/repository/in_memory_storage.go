@@ -1,3 +1,4 @@
+// Пакет repository предоставляет реализации хранилищ для метрик.
 package repository
 
 import (
@@ -11,29 +12,36 @@ import (
 	"github.com/e-l-l-a-r/monitoring/internal/model"
 )
 
+// MetricNotFoundError возвращается, когда метрика не найдена в хранилище.
 type MetricNotFoundError struct {
 	Name string
 }
 
+// Error возвращает строковое представление ошибки.
 func (e *MetricNotFoundError) Error() string {
 	return fmt.Sprintf("metric %q not found", e.Name)
 }
 
+// TypeMismatchError возвращается, когда тип запрашиваемой метрики не совпадает с типом в хранилище.
 type TypeMismatchError struct {
 	Name string
 }
 
+// Error возвращает строковое представление ошибки.
 func (e *TypeMismatchError) Error() string {
 	return fmt.Sprintf("type mismatch for metric %q", e.Name)
 }
 
+// MemStorage представляет хранилище метрик в оперативной памяти.
+// Поддерживает синхронизацию с файлом.
 type MemStorage struct {
-	Metrics      map[string]model.Metrics
-	lastSyncTime time.Time
-	SyncInterval uint
-	SyncFileName string
+	Metrics      map[string]model.Metrics // Карта метрик, где ключ - ID метрики
+	lastSyncTime time.Time                // Время последней синхронизации с файлом
+	SyncInterval uint                     // Интервал синхронизации в секундах
+	SyncFileName string                   // Имя файла для синхронизации
 }
 
+// NewMemStorage создает новый экземпляр MemStorage.
 func NewMemStorage(SyncInterval uint, SyncFileName string) *MemStorage {
 	return &MemStorage{
 		Metrics:      make(map[string]model.Metrics),
@@ -43,6 +51,7 @@ func NewMemStorage(SyncInterval uint, SyncFileName string) *MemStorage {
 	}
 }
 
+// AddData добавляет или обновляет значение метрики по имени и типу.
 func (ms *MemStorage) AddData(ctx context.Context, name string, mtype string, value interface{}) error {
 	val, ok := ms.Metrics[name]
 	if ok {
@@ -90,6 +99,7 @@ func (ms *MemStorage) AddData(ctx context.Context, name string, mtype string, va
 	return nil
 }
 
+// AddMetricData добавляет или обновляет метрику на основе модели model.Metrics.
 func (ms *MemStorage) AddMetricData(ctx context.Context, metric model.Metrics) error {
 	val, ok := ms.Metrics[metric.ID]
 	if ok {
@@ -117,6 +127,7 @@ func (ms *MemStorage) AddMetricData(ctx context.Context, metric model.Metrics) e
 	return nil
 }
 
+// AddBatchMetricsData добавляет или обновляет список метрик.
 func (ms *MemStorage) AddBatchMetricsData(ctx context.Context, metrics []model.Metrics) error {
 	for _, metric := range metrics {
 		err := ms.AddMetricData(ctx, metric)
@@ -131,10 +142,12 @@ func isValidMetricType(mType string) bool {
 	return mType == model.Counter || mType == model.Gauge
 }
 
+// GetValues возвращает все метрики из хранилища.
 func (ms *MemStorage) GetValues(ctx context.Context) map[string]model.Metrics {
 	return ms.Metrics
 }
 
+// GetValue возвращает значение метрики по имени и типу.
 func (ms *MemStorage) GetValue(ctx context.Context, name string, mtype string) (float64, error) {
 	val, ok := ms.Metrics[name]
 	if !ok {
@@ -152,6 +165,7 @@ func (ms *MemStorage) GetValue(ctx context.Context, name string, mtype string) (
 	return 0, nil
 }
 
+// GetMetricValue заполняет структуру metric актуальными данными из хранилища.
 func (ms *MemStorage) GetMetricValue(ctx context.Context, metric *model.Metrics) error {
 	val, ok := ms.Metrics[metric.ID]
 	if !ok {
@@ -185,6 +199,7 @@ func (ms *MemStorage) syncToFile(ctx context.Context) error {
 	return nil
 }
 
+// RestoreFromFile восстанавливает состояние хранилища из файла.
 func (ms *MemStorage) RestoreFromFile(ctx context.Context) error {
 	if ms.SyncFileName == "" {
 		return nil
@@ -201,6 +216,7 @@ func (ms *MemStorage) RestoreFromFile(ctx context.Context) error {
 	return nil
 }
 
+// SyncIfNeed выполняет синхронизацию данных с файлом, если прошел интервал SyncInterval.
 func (ms *MemStorage) SyncIfNeed(ctx context.Context) error {
 	if uint(time.Since(ms.lastSyncTime).Seconds()) >= ms.SyncInterval {
 		err := ms.syncToFile(ctx)

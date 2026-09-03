@@ -10,12 +10,14 @@ import (
 	"github.com/e-l-l-a-r/monitoring/internal/logger"
 )
 
+// UrlAuditor — наблюдатель, который отправляет данные аудита на указанный URL с помощью HTTP POST.
 type UrlAuditor struct {
 	baseObserver
 	url    string
 	client http.Client
 }
 
+// NewUrlAuditor создает новый экземпляр UrlAuditor для отправки данных по сети.
 func NewUrlAuditor(url string) *UrlAuditor {
 	return &UrlAuditor{
 		url: url,
@@ -30,6 +32,7 @@ func NewUrlAuditor(url string) *UrlAuditor {
 
 func (u *UrlAuditor) update(data *AuditData) error {
 
+	u.baseObserver.prepareData(data)
 	request, err := http.NewRequest(http.MethodPost, u.url, strings.NewReader(u.strData))
 	if err != nil {
 		return logger.NewTracedError("request create error", err)

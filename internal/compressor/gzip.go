@@ -1,3 +1,4 @@
+// Пакет compressor предоставляет инструменты для сжатия и распаковки HTTP-трафика с использованием gzip.
 package compressor
 
 import (
@@ -62,6 +63,7 @@ func (g gzipReadCloser) Close() error {
 	return err2
 }
 
+// GzipHandle — middleware для обработки сжатого входящего трафика и автоматического сжатия ответов.
 func GzipHandle(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.EqualFold(r.Header.Get("Content-Encoding"), "gzip") {
@@ -111,6 +113,7 @@ func GzipHandle(next http.Handler) http.Handler {
 	})
 }
 
+// NewGzippedReader создает io.Reader, который возвращает сжатые данные.
 func NewGzippedReader(data []byte) (io.Reader, error) {
 	var buf bytes.Buffer
 
@@ -131,6 +134,7 @@ func NewGzippedReader(data []byte) (io.Reader, error) {
 	return &buf, nil
 }
 
+// RequestReader возвращает io.Reader для тела запроса, автоматически распаковывая его, если оно сжато.
 func RequestReader(req *http.Request) (io.Reader, error) {
 	if req.Header.Get("Content-Encoding") == "gzip" {
 		dataReader := readerPool.Get().(*gzip.Reader)

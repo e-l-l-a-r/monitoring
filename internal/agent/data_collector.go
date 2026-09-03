@@ -1,3 +1,4 @@
+// Пакет agent предоставляет инструменты для сбора системных метрик.
 package agent
 
 import (
@@ -19,11 +20,13 @@ type metric struct {
 	tick   func() int64
 }
 
+// ChannaledMetric представляет метрику, для передачи через канал.
 type ChannaledMetric struct {
 	Key string
 	metric
 }
 
+// NewGauge создает новую метрику типа gauge с функцией для получения значения.
 func NewGauge(name string, getter func() float64) *metric {
 	return &metric{
 		Metrics: model.NewGaugeMetrics(name, 0),
@@ -31,6 +34,7 @@ func NewGauge(name string, getter func() float64) *metric {
 	}
 }
 
+// NewCounter создает новую метрику типа counter с функцией инкремента.
 func NewCounter(name string, tick func() int64) *metric {
 	return &metric{
 		Metrics: model.NewCounterMetrics(name, 0),
@@ -38,6 +42,7 @@ func NewCounter(name string, tick func() int64) *metric {
 	}
 }
 
+// DataCollector отвечает за сбор метрик из runtime и системных ресурсов.
 type DataCollector struct {
 	memStt  *runtime.MemStats
 	memUsg  *mem.VirtualMemoryStat
@@ -45,6 +50,7 @@ type DataCollector struct {
 	metrics map[string]metric
 }
 
+// NewDataCollector создает новый экземпляр DataCollector и инициализирует набор метрик.
 func NewDataCollector() *DataCollector {
 	memStats := new(runtime.MemStats)
 	memUsage, _ := mem.VirtualMemory()
@@ -96,6 +102,7 @@ func NewDataCollector() *DataCollector {
 	}
 }
 
+// UpdMetrics Перечитывает значения всех метрик.
 func (dc *DataCollector) UpdMetrics() {
 	runtime.ReadMemStats(dc.memStt)
 	for _, metric := range dc.metrics {
@@ -112,6 +119,7 @@ func (dc *DataCollector) UpdMetrics() {
 	}
 }
 
+// MetricsReader запускает цикл сбора метрик и возвращает канал для получения результатов.
 func (dc *DataCollector) MetricsReader(doneCh chan struct{}, delay uint) chan ChannaledMetric {
 	ch := make(chan ChannaledMetric, len(dc.metrics))
 	sync := make(chan struct{})
@@ -166,9 +174,12 @@ func (dc *DataCollector) MetricsReader(doneCh chan struct{}, delay uint) chan Ch
 	return ch
 }
 
+// GetValues возвращает текущие значения метрик.
 func (dc *DataCollector) GetValues() map[string]metric {
 	return dc.metrics
 }
+
+// OnSuccessSent вызывается после успешной отправки метрики, сбрасывая счетчик для типа counter.
 func (dc *DataCollector) OnSuccessSent(name string) {
 	val, ok := dc.metrics[name]
 	if ok && val.MType == model.Counter {

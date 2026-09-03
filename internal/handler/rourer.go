@@ -1,3 +1,4 @@
+// Пакет handler предоставляет HTTP-обработчики для управления метриками.
 package handler
 
 import (
@@ -18,13 +19,21 @@ import (
 	"github.com/e-l-l-a-r/monitoring/internal/repository"
 )
 
+// Storage определяет интерфейс для хранилища метрик, необходимого хендлерам.
 type Storage interface {
+	// AddData добавляет данные метрики.
 	AddData(ctx context.Context, name string, mtype string, value interface{}) error
+	// AddMetricData добавляет данные на основе модели Metrics.
 	AddMetricData(ctx context.Context, metrics model.Metrics) error
+	// AddBatchMetricsData добавляет пакет метрик.
 	AddBatchMetricsData(ctx context.Context, metrics []model.Metrics) error
+	// GetValues возвращает все накопленные метрики.
 	GetValues(ctx context.Context) map[string]model.Metrics
+	// GetValue возвращает значение конкретной метрики.
 	GetValue(ctx context.Context, name string, mtype string) (float64, error)
+	// GetMetricValue заполняет структуру Metrics актуальным значением.
 	GetMetricValue(ctx context.Context, metric *model.Metrics) error
+	// SyncIfNeed выполняет синхронизацию данных, если это необходимо.
 	SyncIfNeed(ctx context.Context) error
 }
 
@@ -121,6 +130,7 @@ func badRequest(resp http.ResponseWriter, _ *http.Request) {
 	http.Error(resp, "No value", http.StatusBadRequest)
 }
 
+// GetRouter настраивает и возвращает chi.Router со всеми эндпоинтами.
 func GetRouter(storage Storage, audit auditor.Publisher) *chi.Mux {
 	rtr := chi.NewRouter()
 

@@ -5,9 +5,13 @@ import (
 	"net/http"
 )
 
+// Publisher определяет интерфейс для управления наблюдателями и уведомления их о событиях аудита.
 type Publisher interface {
+	// Register регистрирует нового наблюдателя.
 	Register(observer)
+	// Deregister удаляет наблюдателя из списка.
 	Deregister(observer)
+	// Notify уведомляет всех зарегистрированных наблюдателей о событии.
 	Notify(*AuditData)
 }
 
@@ -32,12 +36,14 @@ func (a *auditor) Notify(data *AuditData) {
 	}
 }
 
+// NewAuditor создает новый экземпляр аудитора, реализующего интерфейс Publisher.
 func NewAuditor() *auditor {
 	return &auditor{}
 }
 
 type auditorKey struct{}
 
+// WithPublisher — middleware для добавления объекта Publisher в контекст HTTP-запроса.
 func WithPublisher(p Publisher) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -47,6 +53,7 @@ func WithPublisher(p Publisher) func(next http.Handler) http.Handler {
 	}
 }
 
+// FromContext извлекает аудитора из контекста. Возвращает аудитор и флаг успеха.
 func FromContext(ctx context.Context) (*auditor, bool) {
 	a, ok := ctx.Value(auditorKey{}).(*auditor)
 	return a, ok
