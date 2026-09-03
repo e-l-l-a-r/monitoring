@@ -8,22 +8,22 @@ import (
 
 type observer interface {
 	update(*AuditData) error
-	getId() string
+	getID() string
 }
 
 // AuditData содержит информацию для записи в аудит: временную метку, список метрик и IP-адрес клиента.
 type AuditData struct {
-	Ts        int64    `json:"ts"`
+	TS        int64    `json:"ts"`
 	Metrics   []string `json:"metrics"`
-	IpAddress string   `json:"ip_address"`
+	IPAddress string   `json:"ip_address"`
 }
 
 // NewAuditData создает новый экземпляр AuditData с текущей временной меткой.
 func NewAuditData(metrics []string, ip string) AuditData {
 	return AuditData{
-		Ts:        time.Now().Unix(),
+		TS:        time.Now().Unix(),
 		Metrics:   metrics,
-		IpAddress: ip,
+		IPAddress: ip,
 	}
 }
 
@@ -41,6 +41,6 @@ func (o *baseObserver) prepareData(data *AuditData) error {
 	return nil
 }
 
-func (o *baseObserver) getId() string {
+func (o *baseObserver) getID() string {
 	return o.id
 }

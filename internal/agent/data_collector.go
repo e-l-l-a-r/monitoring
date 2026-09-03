@@ -90,7 +90,7 @@ func NewDataCollector() *DataCollector {
 		"FreeMemory":    *NewGauge("FreeMemory", func() float64 { return float64(memUsage.Free) }),
 	}
 
-	for n, _ := range cpuUsage {
+	for n := range cpuUsage {
 		name := fmt.Sprintf("CPUutilization%d", (n + 1))
 		metrics[name] = *NewGauge(fmt.Sprintf("CPU%d Usage", n+1), func() float64 { return cpuUsage[n] })
 	}
@@ -135,10 +135,8 @@ func (dc *DataCollector) MetricsReader(doneCh chan struct{}, delay uint) chan Ch
 				logger.Info("Updating metrics")
 				runtime.ReadMemStats(dc.memStt)
 				dc.memUsg, _ = mem.VirtualMemory()
-				cpu_vals, _ := cpu.Percent(0, true)
-				for n, val := range cpu_vals {
-					(*dc.cpuUsg)[n] = val
-				}
+				cpuVals, _ := cpu.Percent(0, true)
+				copy(*dc.cpuUsg, cpuVals)
 				for range dc.metrics {
 					sync <- struct{}{}
 				}

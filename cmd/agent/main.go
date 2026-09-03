@@ -123,9 +123,12 @@ func sendData(client *http.Client, log Logger, url string, val interface{}) erro
 		isCompressed = false
 	}
 	reader, sign, err := crypto.NewSegnedReader(reader)
+	if err != nil {
+		return err
+	}
 	request, err := http.NewRequest(http.MethodPost, url, reader)
 	if err != nil {
-		log.WarnMsg(err)
+		return err
 	}
 	request.Header.Set("Content-Type", "application/json")
 	if isCompressed {
@@ -136,7 +139,12 @@ func sendData(client *http.Client, log Logger, url string, val interface{}) erro
 		request.Header.Set("HashSHA256", sign)
 	}
 
-	_, err = log.DoRequestWithLog(client, request)
+	response, err := log.DoRequestWithLog(client, request)
+	if response != nil && response.Body != nil {
+		defer func() {
+			_ = response.Body.Close()
+		}()
+	}
 	return err
 }
 
@@ -159,7 +167,7 @@ func runSync(conf config, mon *agent.DataCollector, client *http.Client, log Log
 			})
 			errs = append(errs, err)
 			if err == nil {
-				for key, _ := range vals {
+				for key := range vals {
 					mon.OnSuccessSent(key)
 				}
 			} else {
@@ -186,11 +194,10 @@ func runSync(conf config, mon *agent.DataCollector, client *http.Client, log Log
 	}
 }
 
-func async_sender(url string, data <-chan agent.ChannaledMetric,
+func asyncSender(url string, data <-chan agent.ChannaledMetric,
 	mon *agent.DataCollector, client *http.Client, log Logger, wg *sync.WaitGroup) {
 	defer wg.Done()
 	for val := range data {
-		var errs []error
 		data, err := json.Marshal(val)
 		if err != nil {
 			continue
@@ -204,7 +211,6 @@ func async_sender(url string, data <-chan agent.ChannaledMetric,
 		err = logger.ExecuteWithRetryNoResult(func(args ...interface{}) error {
 			return sendData(client, log, url, val.Metrics)
 		})
-		errs = append(errs, err)
 		if err == nil {
 			mon.OnSuccessSent(val.Key)
 		}
@@ -242,9 +248,9 @@ func main() {
 		os.Exit(0)
 	}
 
-	done_ch := make(chan struct{})
-	defer close(done_ch)
-	data_ch := mon.MetricsReader(done_ch, conf.PollInterval)
+	doneCh := make(chan struct{})
+	defer close(doneCh)
+	dataCh := mon.MetricsReader(doneCh, conf.PollInterval)
 
 	url := fmt.Sprintf("http://%s/update/", conf.Address)
 
@@ -252,7 +258,7 @@ func main() {
 	var wg sync.WaitGroup
 	for w = 0; w < conf.RateLimit; w++ {
 		wg.Add(1)
-		go async_sender(url, data_ch, mon, &client, log, &wg)
+		go asyncSender(url, dataCh, mon, &client, log, &wg)
 	}
 
 	wg.Wait()

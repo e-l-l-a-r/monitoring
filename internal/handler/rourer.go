@@ -118,7 +118,7 @@ func getMetric(storage Storage) http.HandlerFunc {
 	}
 }
 
-func incorrectApi(resp http.ResponseWriter, _ *http.Request) {
+func incorrectAPI(resp http.ResponseWriter, _ *http.Request) {
 	http.Error(resp, "Incorrect API", http.StatusBadRequest)
 }
 
@@ -137,18 +137,18 @@ func GetRouter(storage Storage, audit auditor.Publisher) *chi.Mux {
 	rtr.Use(auditor.WithPublisher(audit))
 
 	rtr.Get("/", logger.ServerRequestLogger(listMetrics(storage)))
-	rtr.Post("/", logger.ServerRequestLogger(incorrectApi))
+	rtr.Post("/", logger.ServerRequestLogger(incorrectAPI))
 
-	rtr.Post("/update/", logger.ServerRequestLogger(updJsonMetric(storage)))
+	rtr.Post("/update/", logger.ServerRequestLogger(updJSONMetric(storage)))
 	rtr.Post("/updates/", logger.ServerRequestLogger(updBatchMetrics(storage)))
 	rtr.Post("/update/{mtype}/", logger.ServerRequestLogger(notFound))
 	rtr.Post("/update/{mtype}/{name}/", logger.ServerRequestLogger(badRequest))
 	rtr.Post("/update/{mtype}/{name}/{val}", logger.ServerRequestLogger(updMetric(storage)))
 
 	rtr.Get("/value/{mtype}/{name}", logger.ServerRequestLogger(getMetric(storage)))
-	rtr.Post("/value/", logger.ServerRequestLogger(getJsonMetric(storage)))
+	rtr.Post("/value/", logger.ServerRequestLogger(getJSONMetric(storage)))
 
-	rtr.Get("/ping", logger.ServerRequestLogger(pingDb(storage)))
+	rtr.Get("/ping", logger.ServerRequestLogger(pingDB(storage)))
 
 	return rtr
 }
@@ -188,7 +188,7 @@ func updMetric(storage Storage) http.HandlerFunc {
 
 }
 
-func updJsonMetric(storage Storage) http.HandlerFunc {
+func updJSONMetric(storage Storage) http.HandlerFunc {
 	return func(resp http.ResponseWriter, req *http.Request) {
 		ctx := req.Context()
 
@@ -276,7 +276,7 @@ func updBatchMetrics(storage Storage) http.HandlerFunc {
 	}
 }
 
-func getJsonMetric(storage Storage) http.HandlerFunc {
+func getJSONMetric(storage Storage) http.HandlerFunc {
 	return func(resp http.ResponseWriter, req *http.Request) {
 
 		ctx := req.Context()
@@ -302,11 +302,11 @@ func getJsonMetric(storage Storage) http.HandlerFunc {
 	}
 }
 
-func pingDb(storage Storage) http.HandlerFunc {
+func pingDB(storage Storage) http.HandlerFunc {
 	return func(resp http.ResponseWriter, req *http.Request) {
 		switch s := storage.(type) {
-		case *repository.SqlStorage:
-			// Здесь s имеет тип *repository.SqlStorage
+		case *repository.SQLStorage:
+			// Здесь s имеет тип *repository.SQLStorage
 			err := logger.ExecuteWithRetryNoResult(func(args ...interface{}) error {
 				return s.Ping()
 			})

@@ -23,11 +23,11 @@ func (a *auditor) Register(o observer) {
 	if a.observers == nil {
 		a.observers = make(map[string]observer)
 	}
-	a.observers[o.getId()] = o
+	a.observers[o.getID()] = o
 }
 
 func (a *auditor) Deregister(o observer) {
-	delete(a.observers, o.getId())
+	delete(a.observers, o.getID())
 }
 
 func (a *auditor) Notify(data *AuditData) {

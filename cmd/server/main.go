@@ -46,10 +46,10 @@ type Config struct {
 	StoreInterval   uint   `env:"STORE_INTERVAL"`
 	FileStoragePath string `env:"FILE_STORAGE_PATH"`
 	Restore         bool   `env:"RESTORE"`
-	DbConnSrting    string `env:"DATABASE_DSN"`
+	DBConnString    string `env:"DATABASE_DSN"`
 	Key             string `env:"KEY"`
 	AuditFile       string `env:"AUDIT_FILE"`
-	AuditUrl        string `env:"AUDIT_URL"`
+	AuditURL        string `env:"AUDIT_URL"`
 }
 
 func parseFlags() {
@@ -74,13 +74,13 @@ func getConfig() (result Config) {
 		"file to store metrics")
 	var flagRestore = pflag.BoolP("restore", "r", false,
 		"restore metrics from file")
-	var flagDbConnSrting = pflag.StringP("db-conn-string", "d", "",
+	var flagDBConnString = pflag.StringP("db-conn-string", "d", "",
 		"database connection string")
 	var flagKey = pflag.StringP("key", "k", "",
 		"Key for signing the requests")
 	var flagAuditFile = pflag.StringP("audit-file", "c", "",
 		"file to store requests log")
-	var flagAuditUrl = pflag.StringP("audit-url", "u", "",
+	var flagAuditURL = pflag.StringP("audit-url", "u", "",
 		"url to send requests log")
 
 	err := env.Parse(&result)
@@ -103,17 +103,17 @@ func getConfig() (result Config) {
 	if result.FileStoragePath == "" {
 		result.FileStoragePath = *flagFileStoragePath
 	}
-	if result.Restore == false {
+	if !result.Restore {
 		result.Restore = *flagRestore
 	}
-	if result.DbConnSrting == "" {
-		result.DbConnSrting = *flagDbConnSrting
+	if result.DBConnString == "" {
+		result.DBConnString = *flagDBConnString
 	}
 	if result.AuditFile == "" {
 		result.AuditFile = *flagAuditFile
 	}
-	if result.AuditUrl == "" {
-		result.AuditUrl = *flagAuditUrl
+	if result.AuditURL == "" {
+		result.AuditURL = *flagAuditURL
 	}
 
 	if result.Key == "" {
@@ -143,18 +143,22 @@ func run() error {
 	log.InfoMsg("Restore on startup: ", conf.Restore)
 	log.InfoMsg("==================================")
 	var storage handler.Storage
-	if conf.DbConnSrting != "" {
+	if conf.DBConnString != "" {
 		log.InfoMsg("Use DataBase storage")
 		result, err := logger.ExecuteWithRetry(func(args ...interface{}) (interface{}, error) {
-			return repository.NewSqlStorage(conf.DbConnSrting)
+			return repository.NewSQLStorage(conf.DBConnString)
 		})
 		if err != nil {
 			return err
 		}
-		storage = result.(*repository.SqlStorage)
-		defer storage.(*repository.SqlStorage).Close()
-		storage.(*repository.SqlStorage).DoMigrate()
-		storage.(*repository.SqlStorage).Restore(ctx)
+		storage = result.(*repository.SQLStorage)
+		defer storage.(*repository.SQLStorage).Close()
+		if err := storage.(*repository.SQLStorage).DoMigrate(); err != nil {
+			return err
+		}
+		if err := storage.(*repository.SQLStorage).Restore(ctx); err != nil {
+			return err
+		}
 	} else {
 		log.InfoMsg("Use Memory storage")
 		storage = repository.NewMemStorage(conf.StoreInterval, conf.FileStoragePath)
@@ -169,12 +173,9 @@ func run() error {
 		defer syncTicker.Stop()
 
 		go func() {
-			for {
-				select {
-				case <-syncTicker.C:
-					if err := storage.SyncIfNeed(ctx); err != nil {
-						log.WarnMsg("Error during periodic sync:", err)
-					}
+			for range syncTicker.C {
+				if err := storage.SyncIfNeed(ctx); err != nil {
+					log.WarnMsg("Error during periodic sync:", err)
 				}
 			}
 		}()
@@ -190,8 +191,8 @@ func run() error {
 	if conf.AuditFile != "" {
 		audit.Register(auditor.NewFileAuditor(conf.AuditFile))
 	}
-	if conf.AuditUrl != "" {
-		audit.Register(auditor.NewUrlAuditor(conf.AuditUrl))
+	if conf.AuditURL != "" {
+		audit.Register(auditor.NewURLAuditor(conf.AuditURL))
 	}
 
 	router := handler.GetRouter(storage, audit)

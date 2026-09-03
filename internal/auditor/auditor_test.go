@@ -64,7 +64,7 @@ func TestFileAuditor(t *testing.T) {
 	defer os.Remove(tmpFile)
 
 	fa := NewFileAuditor(tmpFile)
-	assert.Equal(t, "File:"+tmpFile, fa.getId())
+	assert.Equal(t, "File:"+tmpFile, fa.getID())
 
 	data := NewAuditData([]string{"test_metric"}, "1.1.1.1")
 	err := fa.update(&data)
@@ -76,7 +76,7 @@ func TestFileAuditor(t *testing.T) {
 	assert.Contains(t, string(content), "1.1.1.1")
 }
 
-func TestUrlAuditor(t *testing.T) {
+func TestURLAuditor(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		if strings.Contains(string(body), "test_metric") {
@@ -87,10 +87,10 @@ func TestUrlAuditor(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	ua := NewUrlAuditor(ts.URL)
-	assert.Equal(t, "Url:"+ts.URL, ua.getId())
+	ua := NewURLAuditor(ts.URL)
+	assert.Equal(t, "Url:"+ts.URL, ua.getID())
 
-	data := &AuditData{Ts: 123, Metrics: []string{"test_metric"}, IpAddress: "1.1.1.1"}
+	data := &AuditData{TS: 123, Metrics: []string{"test_metric"}, IPAddress: "1.1.1.1"}
 	ua.baseObserver.prepareData(data)
 	err := ua.update(data)
 	assert.NoError(t, err)
@@ -98,7 +98,7 @@ func TestUrlAuditor(t *testing.T) {
 
 func TestBaseObserver_PrepareData(t *testing.T) {
 	bo := &baseObserver{}
-	data := &AuditData{Ts: 123, Metrics: []string{"m1"}, IpAddress: "127.0.0.1"}
+	data := &AuditData{TS: 123, Metrics: []string{"m1"}, IPAddress: "127.0.0.1"}
 	err := bo.prepareData(data)
 	assert.NoError(t, err)
 	assert.JSONEq(t, `{"ts":123, "metrics":["m1"], "ip_address":"127.0.0.1"}`, bo.strData)

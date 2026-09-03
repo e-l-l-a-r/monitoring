@@ -10,16 +10,16 @@ import (
 	"github.com/e-l-l-a-r/monitoring/internal/logger"
 )
 
-// UrlAuditor — наблюдатель, который отправляет данные аудита на указанный URL с помощью HTTP POST.
-type UrlAuditor struct {
+// URLAuditor — наблюдатель, который отправляет данные аудита на указанный URL с помощью HTTP POST.
+type URLAuditor struct {
 	baseObserver
 	url    string
 	client http.Client
 }
 
-// NewUrlAuditor создает новый экземпляр UrlAuditor для отправки данных по сети.
-func NewUrlAuditor(url string) *UrlAuditor {
-	return &UrlAuditor{
+// NewURLAuditor создает новый экземпляр URLAuditor для отправки данных по сети.
+func NewURLAuditor(url string) *URLAuditor {
+	return &URLAuditor{
 		url: url,
 		client: http.Client{
 			Timeout: time.Second * 1, // интервал ожидания: 1 секунда
@@ -30,9 +30,11 @@ func NewUrlAuditor(url string) *UrlAuditor {
 	}
 }
 
-func (u *UrlAuditor) update(data *AuditData) error {
+func (u *URLAuditor) update(data *AuditData) error {
 
-	u.baseObserver.prepareData(data)
+	if err := u.baseObserver.prepareData(data); err != nil {
+		return logger.NewTracedError("audit data prepare error", err)
+	}
 	request, err := http.NewRequest(http.MethodPost, u.url, strings.NewReader(u.strData))
 	if err != nil {
 		return logger.NewTracedError("request create error", err)
@@ -42,10 +44,13 @@ func (u *UrlAuditor) update(data *AuditData) error {
 	resp, err := u.client.Do(request)
 	if err != nil {
 		return logger.NewTracedError("request send error", err)
-	} else if resp.StatusCode != http.StatusOK {
+	}
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
 		err = fmt.Errorf("status code: %d, response: %s", resp.StatusCode, string(bodyBytes))
-		resp.Body.Close()
 		return logger.NewTracedError("request finished with bad status", err)
 	}
 	return nil
