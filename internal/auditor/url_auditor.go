@@ -1,7 +1,6 @@
 package auditor
 
 import (
-	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -32,10 +31,18 @@ func NewURLAuditor(url string) *URLAuditor {
 
 func (u *URLAuditor) update(data *AuditData) error {
 
-	if err := u.baseObserver.prepareData(data); err != nil {
+	strData, err := u.baseObserver.prepareData(data)
+	if err != nil {
 		return logger.NewTracedError("audit data prepare error", err)
 	}
-	request, err := http.NewRequest(http.MethodPost, u.url, strings.NewReader(u.strData))
+
+	return logger.ExecuteWithRetryNoResult(func(args ...interface{}) error {
+		return u.send(strData)
+	})
+}
+
+func (u *URLAuditor) send(strData string) error {
+	request, err := http.NewRequest(http.MethodPost, u.url, strings.NewReader(strData))
 	if err != nil {
 		return logger.NewTracedError("request create error", err)
 	}
@@ -50,8 +57,10 @@ func (u *URLAuditor) update(data *AuditData) error {
 	}()
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
-		err = fmt.Errorf("status code: %d, response: %s", resp.StatusCode, string(bodyBytes))
-		return logger.NewTracedError("request finished with bad status", err)
+		return logger.NewTracedError("request finished with bad status", &logger.HTTPError{
+			StatusCode: resp.StatusCode,
+			Response:   string(bodyBytes),
+		})
 	}
 	return nil
 }

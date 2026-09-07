@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"html/template"
+	"net"
 	"net/http"
 	"strconv"
 
@@ -130,6 +131,14 @@ func badRequest(resp http.ResponseWriter, _ *http.Request) {
 	http.Error(resp, "No value", http.StatusBadRequest)
 }
 
+func requestIP(req *http.Request) string {
+	host, _, err := net.SplitHostPort(req.RemoteAddr)
+	if err != nil {
+		return req.RemoteAddr
+	}
+	return host
+}
+
 // GetRouter настраивает и возвращает chi.Router со всеми эндпоинтами.
 func GetRouter(storage Storage, audit auditor.Publisher) *chi.Mux {
 	rtr := chi.NewRouter()
@@ -177,8 +186,12 @@ func updMetric(storage Storage) http.HandlerFunc {
 
 		audit, ok := auditor.FromContext(ctx)
 		if ok {
-			data := auditor.NewAuditData([]string{chi.URLParam(req, "name")}, req.RemoteAddr)
-			audit.Notify(&data)
+			data := auditor.NewAuditData([]string{chi.URLParam(req, "name")}, requestIP(req))
+			if err := audit.Notify(&data); err != nil {
+				logger.Warn("Audit error: ", err.Error())
+				http.Error(resp, "Internal Server Error", http.StatusInternalServerError)
+				return
+			}
 		}
 
 		storage.SyncIfNeed(ctx)
@@ -220,8 +233,12 @@ func updJSONMetric(storage Storage) http.HandlerFunc {
 
 		audit, ok := auditor.FromContext(ctx)
 		if ok {
-			data := auditor.NewAuditData([]string{metric.ID}, req.RemoteAddr)
-			audit.Notify(&data)
+			data := auditor.NewAuditData([]string{metric.ID}, requestIP(req))
+			if err := audit.Notify(&data); err != nil {
+				logger.Warn("Audit error: ", err.Error())
+				http.Error(resp, "Internal Server Error", http.StatusInternalServerError)
+				return
+			}
 		}
 
 		storage.SyncIfNeed(ctx)
@@ -266,8 +283,12 @@ func updBatchMetrics(storage Storage) http.HandlerFunc {
 			for num, metric := range metrics {
 				metricNames[num] = metric.ID
 			}
-			data := auditor.NewAuditData(metricNames, req.RemoteAddr)
-			audit.Notify(&data)
+			data := auditor.NewAuditData(metricNames, requestIP(req))
+			if err := audit.Notify(&data); err != nil {
+				logger.Warn("Audit error: ", err.Error())
+				http.Error(resp, "Internal Server Error", http.StatusInternalServerError)
+				return
+			}
 		}
 
 		storage.SyncIfNeed(ctx)

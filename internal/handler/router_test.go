@@ -31,7 +31,10 @@ func testRequest(t *testing.T, ts *httptest.Server, method,
 }
 
 func TestUpdateHandler_InvalidPath(t *testing.T) {
-	ts := httptest.NewServer(GetRouter(repository.NewMemStorage(300, "router_testmetrics.json"), auditor.NewAuditor()))
+	audit := auditor.NewAuditor()
+	defer audit.Close()
+
+	ts := httptest.NewServer(GetRouter(repository.NewMemStorage(300, "router_testmetrics.json"), audit))
 	defer ts.Close()
 
 	tests := []struct {
@@ -58,7 +61,10 @@ func TestUpdateHandler_InvalidPath(t *testing.T) {
 }
 
 func TestUpdateHandler_ValidRequest(t *testing.T) {
-	ts := httptest.NewServer(GetRouter(repository.NewMemStorage(300, "router_testmetrics.json"), auditor.NewAuditor()))
+	audit := auditor.NewAuditor()
+	defer audit.Close()
+
+	ts := httptest.NewServer(GetRouter(repository.NewMemStorage(300, "router_testmetrics.json"), audit))
 	defer ts.Close()
 	tests := []struct {
 		name   string
@@ -85,6 +91,27 @@ func TestUpdateHandler_ValidRequest(t *testing.T) {
 
 			assert.Equal(t, http.StatusOK, statusCode)
 			assert.Equal(t, tt.result, get)
+		})
+	}
+}
+
+func TestRequestIP(t *testing.T) {
+	tests := []struct {
+		name       string
+		remoteAddr string
+		want       string
+	}{
+		{name: "ipv4 with port", remoteAddr: "192.168.0.42:1234", want: "192.168.0.42"},
+		{name: "ipv6 with port", remoteAddr: "[2001:db8::1]:1234", want: "2001:db8::1"},
+		{name: "without port", remoteAddr: "192.168.0.42", want: "192.168.0.42"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			req.RemoteAddr = tt.remoteAddr
+
+			assert.Equal(t, tt.want, requestIP(req))
 		})
 	}
 }

@@ -20,7 +20,15 @@ type (
 		msg        string
 	}
 	ErrorClassification int
+	HTTPError           struct {
+		StatusCode int
+		Response   string
+	}
 )
+
+func (e *HTTPError) Error() string {
+	return fmt.Sprintf("status code: %d, response: %s", e.StatusCode, e.Response)
+}
 
 var retryDelays = []time.Duration{
 	time.Second,
@@ -75,6 +83,10 @@ func (te *TracedError) IsRetriable() bool {
 
 	if _, ok := errors.AsType[*url.Error](te.err); ok {
 		return true
+	}
+
+	if httpErr, ok := errors.AsType[*HTTPError](te.err); ok {
+		return httpErr.StatusCode == 502 || httpErr.StatusCode == 503 || httpErr.StatusCode == 504 || httpErr.StatusCode == 429
 	}
 
 	// По умолчанию считаем ошибку неповторяемой

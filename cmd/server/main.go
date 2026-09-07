@@ -23,10 +23,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"net/http"
 	_ "net/http/pprof" // подключаем пакет pprof
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/caarlos0/env/v6"
@@ -189,17 +192,47 @@ func run() error {
 	audit := auditor.NewAuditor()
 
 	if conf.AuditFile != "" {
-		audit.Register(auditor.NewFileAuditor(conf.AuditFile))
+		fileAudit, err := auditor.NewFileAuditor(conf.AuditFile)
+		if err != nil {
+			return err
+		}
+		defer func() {
+			if err := fileAudit.Close(); err != nil {
+				log.WarnMsg("Error closing audit file:", err)
+			}
+		}()
+		audit.Register(fileAudit)
 	}
 	if conf.AuditURL != "" {
 		audit.Register(auditor.NewURLAuditor(conf.AuditURL))
 	}
+	defer audit.Close()
 
 	router := handler.GetRouter(storage, audit)
-
-	err = http.ListenAndServe(conf.Address, crypto.SignHandle(compressor.GzipHandle(router)))
-	if err != nil {
-		return err
+	server := &http.Server{
+		Addr:    conf.Address,
+		Handler: crypto.SignHandle(compressor.GzipHandle(router)),
 	}
-	return nil
+
+	serverErr := make(chan error, 1)
+	go func() {
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serverErr <- err
+			return
+		}
+		serverErr <- nil
+	}()
+
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(stop)
+
+	select {
+	case err := <-serverErr:
+		return err
+	case <-stop:
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		return server.Shutdown(shutdownCtx)
+	}
 }

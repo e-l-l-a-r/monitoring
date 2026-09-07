@@ -28,17 +28,15 @@ func NewAuditData(metrics []string, ip string) AuditData {
 }
 
 type baseObserver struct {
-	strData string
-	id      string
+	id string
 }
 
-func (o *baseObserver) prepareData(data *AuditData) error {
+func (o *baseObserver) prepareData(data *AuditData) (string, error) {
 	bytesData, err := json.Marshal(data)
 	if err != nil {
-		return err
+		return "", err
 	}
-	o.strData = string(bytesData)
-	return nil
+	return string(bytesData), nil
 }
 
 func (o *baseObserver) getID() string {
