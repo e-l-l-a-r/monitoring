@@ -21,8 +21,8 @@ type (
 	}
 	ErrorClassification int
 	HTTPError           struct {
-		StatusCode int
 		Response   string
+		StatusCode int
 	}
 )
 

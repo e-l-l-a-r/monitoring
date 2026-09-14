@@ -1,3 +1,4 @@
+// Package handler содержит тесты для HTTP-обработчиков.
 package handler
 
 import (
@@ -40,13 +41,13 @@ func TestUpdateHandler_InvalidPath(t *testing.T) {
 	tests := []struct {
 		name       string
 		path       string
-		expected   int
 		errMessage string
+		expected   int
 	}{
 		//{"Empty path", "/update/", http.StatusBadRequest, "Incorrect API"},
-		{"Missing metric name", "/update/counter/", http.StatusNotFound, "No metric name"},
-		{"Missing value", "/update/counter/test_metric/", http.StatusBadRequest, "No value"},
-		{"Invalid value", "/update/counter/test_metric/abc", http.StatusBadRequest, "Incorrect value"},
+		{"Отсутствует имя метрики", "/update/counter/", "No metric name", http.StatusNotFound},
+		{"Отсутствует значение", "/update/counter/test_metric/", "No value", http.StatusBadRequest},
+		{"Некорректное значение", "/update/counter/test_metric/abc", "Incorrect value", http.StatusBadRequest},
 	}
 
 	for _, tt := range tests {
@@ -75,13 +76,13 @@ func TestUpdateHandler_ValidRequest(t *testing.T) {
 		mName  string
 		mValue float64
 	}{
-		{"Counter metric", http.MethodPost,
+		{"Метрика Counter", http.MethodPost,
 			"/update/counter/test_counter/123", "", "counter", "test_counter", 123},
-		{"Gauge metric", http.MethodPost,
+		{"Метрика Gauge", http.MethodPost,
 			"/update/gauge/test_gauge/67.89", "", "gauge", "test_gauge", 67.89},
-		{"Get counter metric", http.MethodGet,
+		{"Получение метрики counter", http.MethodGet,
 			"/value/counter/test_counter", "123", "counter", "test_counter", 123},
-		{"Get gauge metric", http.MethodGet,
+		{"Получение метрики gauge", http.MethodGet,
 			"/value/gauge/test_gauge", "67.89", "gauge", "test_gauge", 67.89},
 	}
 
@@ -101,9 +102,9 @@ func TestRequestIP(t *testing.T) {
 		remoteAddr string
 		want       string
 	}{
-		{name: "ipv4 with port", remoteAddr: "192.168.0.42:1234", want: "192.168.0.42"},
-		{name: "ipv6 with port", remoteAddr: "[2001:db8::1]:1234", want: "2001:db8::1"},
-		{name: "without port", remoteAddr: "192.168.0.42", want: "192.168.0.42"},
+		{name: "ipv4 с портом", remoteAddr: "192.168.0.42:1234", want: "192.168.0.42"},
+		{name: "ipv6 с портом", remoteAddr: "[2001:db8::1]:1234", want: "2001:db8::1"},
+		{name: "без порта", remoteAddr: "192.168.0.42", want: "192.168.0.42"},
 	}
 
 	for _, tt := range tests {

@@ -1,4 +1,4 @@
-// Пакет auditor реализует паттерн Наблюдатель для проведения аудита изменений метрик.
+// Package auditor реализует паттерн Наблюдатель для проведения аудита изменений метрик.
 package auditor
 
 import (
@@ -13,9 +13,9 @@ type observer interface {
 
 // AuditData содержит информацию для записи в аудит: временную метку, список метрик и IP-адрес клиента.
 type AuditData struct {
-	TS        int64    `json:"ts"`
-	Metrics   []string `json:"metrics"`
 	IPAddress string   `json:"ip_address"`
+	Metrics   []string `json:"metrics"`
+	TS        int64    `json:"ts"`
 }
 
 // NewAuditData создает новый экземпляр AuditData с текущей временной меткой.

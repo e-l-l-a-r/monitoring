@@ -1,4 +1,4 @@
-// Пакет compressor предоставляет инструменты для сжатия и распаковки HTTP-трафика с использованием gzip.
+// Package compressor предоставляет инструменты для сжатия и распаковки HTTP-трафика с использованием gzip.
 package compressor
 
 import (
@@ -96,7 +96,7 @@ func GzipHandle(next http.Handler) http.Handler {
 		gz := writerPool.Get().(*gzip.Writer)
 		gz.Reset(w)
 		defer func() {
-			gz.Close()
+			_ = gz.Close()
 			writerPool.Put(gz)
 		}()
 
@@ -123,7 +123,7 @@ func NewGzippedReader(data []byte) (io.Reader, error) {
 	}
 
 	if _, err := gz.Write(data); err != nil {
-		gz.Close()
+		_ = gz.Close()
 		return nil, fmt.Errorf("write gzip data: %w", err)
 	}
 

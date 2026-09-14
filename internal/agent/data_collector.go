@@ -1,4 +1,4 @@
-// Пакет agent предоставляет инструменты для сбора системных метрик.
+// Package agent предоставляет инструменты для сбора системных метрик.
 package agent
 
 import (
@@ -15,15 +15,15 @@ import (
 )
 
 type metric struct {
-	model.Metrics
 	getter func() float64
 	tick   func() int64
+	model.Metrics
 }
 
 // ChannaledMetric представляет метрику, для передачи через канал.
 type ChannaledMetric struct {
-	Key string
 	metric
+	Key string
 }
 
 // NewGauge создает новую метрику типа gauge с функцией для получения значения.
@@ -147,7 +147,8 @@ func (dc *DataCollector) MetricsReader(doneCh chan struct{}, delay uint) chan Ch
 
 	for key, metric := range dc.metrics {
 		metric := ChannaledMetric{
-			key, metric,
+			metric: metric,
+			Key:    key,
 		}
 		go func() {
 			logger.Info("Starting collector goroutine for metric " + key)

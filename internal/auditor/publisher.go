@@ -29,8 +29,8 @@ type observerWorker struct {
 }
 
 type auditor struct {
-	mtx       sync.Mutex
 	observers map[string]*observerWorker
+	mtx       sync.Mutex
 	wg        sync.WaitGroup
 	closed    bool
 }

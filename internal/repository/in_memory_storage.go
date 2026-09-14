@@ -1,4 +1,4 @@
-// Пакет repository предоставляет реализации хранилищ для метрик.
+// Package repository предоставляет реализации хранилищ для метрик.
 package repository
 
 import (
@@ -35,10 +35,10 @@ func (e *TypeMismatchError) Error() string {
 // MemStorage представляет хранилище метрик в оперативной памяти.
 // Поддерживает синхронизацию с файлом.
 type MemStorage struct {
-	Metrics      map[string]model.Metrics // Карта метрик, где ключ - ID метрики
 	lastSyncTime time.Time                // Время последней синхронизации с файлом
-	SyncInterval uint                     // Интервал синхронизации в секундах
+	Metrics      map[string]model.Metrics // Карта метрик, где ключ - ID метрики
 	SyncFileName string                   // Имя файла для синхронизации
+	SyncInterval uint                     // Интервал синхронизации в секундах
 }
 
 // NewMemStorage создает новый экземпляр MemStorage.
@@ -188,7 +188,9 @@ func (ms *MemStorage) syncToFile(ctx context.Context) error {
 	if err != nil {
 		return logger.NewTracedError("Error opening file "+ms.SyncFileName+": ", err)
 	}
-	defer file.Close()
+	defer func() {
+		_ = file.Close()
+	}()
 	enc := json.NewEncoder(file)
 
 	err = enc.Encode(ms.Metrics)
@@ -208,7 +210,9 @@ func (ms *MemStorage) RestoreFromFile(ctx context.Context) error {
 	if err != nil {
 		return logger.NewTracedError("Error opening file "+ms.SyncFileName+": ", err)
 	}
-	defer file.Close()
+	defer func() {
+		_ = file.Close()
+	}()
 	dec := json.NewDecoder(file)
 	if err := dec.Decode(&ms.Metrics); err != nil {
 		return logger.NewTracedError("Error while restoring data from "+ms.SyncFileName+": ", err)
