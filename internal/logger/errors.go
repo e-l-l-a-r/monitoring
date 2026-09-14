@@ -20,7 +20,15 @@ type (
 		msg        string
 	}
 	ErrorClassification int
+	HTTPError           struct {
+		StatusCode int
+		Response   string
+	}
 )
+
+func (e *HTTPError) Error() string {
+	return fmt.Sprintf("status code: %d, response: %s", e.StatusCode, e.Response)
+}
 
 var retryDelays = []time.Duration{
 	time.Second,
@@ -45,8 +53,8 @@ func getCallerInfo(skip int) (file string, line int) {
 }
 
 func NewTracedError(msg string, err error) *TracedError {
-	file, line := getCallerInfo(1) // пропускаем текущую функцию
-	singleLogger.Sugar().Warnln(msg, "error", err.Error())
+	file, line := getCallerInfo(2) // пропускаем текущую функцию и NewTracedError
+	Warn(msg, "error", err.Error())
 	return &TracedError{
 		time:       time.Now(),
 		err:        err,
@@ -69,14 +77,16 @@ func (te *TracedError) IsRetriable() bool {
 	}
 
 	// Проверяем и конвертируем в pgconn.PgError, если это возможно
-	var pgErr *pgconn.PgError
-	if errors.As(te.err, &pgErr) {
+	if pgErr, ok := errors.AsType[*pgconn.PgError](te.err); ok {
 		return СlassifyPgError(pgErr) == Retriable
 	}
 
-	var urlErr *url.Error
-	if errors.As(te.err, &urlErr) {
+	if _, ok := errors.AsType[*url.Error](te.err); ok {
 		return true
+	}
+
+	if httpErr, ok := errors.AsType[*HTTPError](te.err); ok {
+		return httpErr.StatusCode == 502 || httpErr.StatusCode == 503 || httpErr.StatusCode == 504 || httpErr.StatusCode == 429
 	}
 
 	// По умолчанию считаем ошибку неповторяемой
@@ -87,17 +97,22 @@ func ExecuteWithRetry(f func(args ...interface{}) (interface{}, error), args ...
 	var err error
 	var val interface{}
 
-	for i := 0; i < len(retryDelays); i++ {
+	for i := 0; i <= len(retryDelays); i++ {
 		val, err = f(args)
 
 		if err == nil {
 			return val, nil
 		}
+
+		if i == len(retryDelays) {
+			break
+		}
+
 		te := NewTracedError("Error while executing: ", err)
 		if !te.IsRetriable() {
 			return nil, err
 		}
-		singleLogger.Sugar().Warnln("Retrying after " + retryDelays[i].String())
+		Warn("Retrying after " + retryDelays[i].String())
 		time.Sleep(retryDelays[i])
 	}
 	return nil, err

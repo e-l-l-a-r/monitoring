@@ -1,3 +1,4 @@
+// Пакет logger предоставляет функционал для логирования HTTP-запросов и системных событий.
 package logger
 
 import (
@@ -33,6 +34,7 @@ type (
 // Глобальная переменная для реализации работы логгера - синглтона
 var singleLogger *logger
 
+// GetLogger возвращает текущий экземпляр логгера. Возвращает ошибку, если логгер не инициализирован.
 func GetLogger() (*logger, error) {
 	if singleLogger == nil {
 		return nil, fmt.Errorf("no logger inited")
@@ -40,6 +42,7 @@ func GetLogger() (*logger, error) {
 	return singleLogger, nil
 }
 
+// InitLogger инициализирует глобальный логгер с заданным уровнем логирования (например, "info", "debug").
 func InitLogger(level string) (*logger, error) {
 	// преобразуем текстовый уровень логирования в zap.AtomicLevel
 	lvl, err := zap.ParseAtomicLevel(level)
@@ -82,6 +85,8 @@ func (r *loggingResponseWriter) WriteHeader(statusCode int) {
 	r.responseData.status = statusCode // захватываем код статуса
 }
 
+// ServerRequestLogger — middleware для логирования входящих HTTP-запросов.
+// Логирует URI, метод, статус ответа, длительность и размер.
 func (l *logger) ServerRequestLogger(h http.HandlerFunc) http.HandlerFunc {
 	logFn := func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -109,6 +114,7 @@ func (l *logger) ServerRequestLogger(h http.HandlerFunc) http.HandlerFunc {
 	return http.HandlerFunc(logFn)
 }
 
+// DoRequestWithLog выполняет HTTP-запрос и логирует результат.
 func (l *logger) DoRequestWithLog(c *http.Client, req *http.Request) (resp *http.Response, err error) {
 	resp, err = c.Do(req)
 	if err != nil {
@@ -125,6 +131,7 @@ func (l *logger) DoRequestWithLog(c *http.Client, req *http.Request) (resp *http
 	return
 }
 
+// InfoMsg логирует сообщение на уровне Info.
 func (l *logger) InfoMsg(args ...interface{}) {
 	if l != nil {
 		l.Sugar().Infoln(args)
@@ -133,6 +140,7 @@ func (l *logger) InfoMsg(args ...interface{}) {
 	}
 }
 
+// WarnMsg логирует сообщение на уровне Warn.
 func (l *logger) WarnMsg(args ...interface{}) {
 	if l != nil {
 		l.Sugar().Warnln(args)
@@ -141,6 +149,7 @@ func (l *logger) WarnMsg(args ...interface{}) {
 	}
 }
 
+// ServerRequestLogger — глобальная обертка для ServerRequestLogger.
 func ServerRequestLogger(h http.HandlerFunc) http.HandlerFunc {
 	if singleLogger != nil {
 		return singleLogger.ServerRequestLogger(h)
@@ -150,6 +159,7 @@ func ServerRequestLogger(h http.HandlerFunc) http.HandlerFunc {
 	return h
 }
 
+// Fatal логирует сообщение и завершает выполнение программы.
 func Fatal(args ...interface{}) {
 	if singleLogger != nil {
 		singleLogger.Sugar().Fatalln(args)
@@ -158,6 +168,7 @@ func Fatal(args ...interface{}) {
 	}
 }
 
+// Warn логирует сообщение на уровне Warn.
 func Warn(args ...interface{}) {
 	if singleLogger != nil {
 		singleLogger.Sugar().Warnln(args)
@@ -166,6 +177,7 @@ func Warn(args ...interface{}) {
 	}
 }
 
+// Info логирует сообщение на уровне Info.
 func Info(args ...interface{}) {
 	if singleLogger != nil {
 		singleLogger.Sugar().Infoln(args)

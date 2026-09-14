@@ -1,19 +1,46 @@
+// Server запускает HTTP-сервер мониторинга, который принимает метрики от
+// агентов, хранит их в памяти, файле или базе данных и обслуживает API
+// получения текущих значений.
+//
+// Параметры запуска можно задать флагами командной строки или переменными
+// окружения. Если переменная окружения задана, она имеет приоритет над
+// соответствующим флагом:
+//   - --address, -a / ADDRESS - адрес и порт HTTP-сервера; по умолчанию
+//     localhost:8080.
+//   - --log-level, -l / LOG_LEVEL - уровень логирования: Debug, Info, Warning
+//     или Error; по умолчанию Info.
+//   - --store-interval, -i / STORE_INTERVAL - интервал сохранения метрик в файл
+//     в секундах; значение 0 включает синхронную запись; по умолчанию 300.
+//   - --file-storage-path, -f / FILE_STORAGE_PATH - путь к файлу хранения
+//     метрик; по умолчанию metrics.json.
+//   - --restore, -r / RESTORE - восстанавливать метрики из файла при старте.
+//   - --db-conn-string, -d / DATABASE_DSN - строка подключения к базе данных;
+//     если задана, используется SQL-хранилище.
+//   - --key, -k / KEY - ключ для проверки подписи запросов.
+//   - --audit-file, -c / AUDIT_FILE - файл для записи аудита запросов.
+//   - --audit-url, -u / AUDIT_URL - URL для отправки аудита запросов.
 package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"net/http"
+	_ "net/http/pprof" // подключаем пакет pprof
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/caarlos0/env/v6"
+	"github.com/spf13/pflag"
+
+	"github.com/e-l-l-a-r/monitoring/internal/auditor"
 	"github.com/e-l-l-a-r/monitoring/internal/compressor"
 	"github.com/e-l-l-a-r/monitoring/internal/crypto"
 	"github.com/e-l-l-a-r/monitoring/internal/handler"
 	"github.com/e-l-l-a-r/monitoring/internal/logger"
 	"github.com/e-l-l-a-r/monitoring/internal/repository"
-	"github.com/spf13/pflag"
 )
 
 type Config struct {
@@ -22,8 +49,10 @@ type Config struct {
 	StoreInterval   uint   `env:"STORE_INTERVAL"`
 	FileStoragePath string `env:"FILE_STORAGE_PATH"`
 	Restore         bool   `env:"RESTORE"`
-	DbConnSrting    string `env:"DATABASE_DSN"`
+	DBConnString    string `env:"DATABASE_DSN"`
 	Key             string `env:"KEY"`
+	AuditFile       string `env:"AUDIT_FILE"`
+	AuditURL        string `env:"AUDIT_URL"`
 }
 
 func parseFlags() {
@@ -48,10 +77,14 @@ func getConfig() (result Config) {
 		"file to store metrics")
 	var flagRestore = pflag.BoolP("restore", "r", false,
 		"restore metrics from file")
-	var flagDbConnSrting = pflag.StringP("db-conn-string", "d", "",
+	var flagDBConnString = pflag.StringP("db-conn-string", "d", "",
 		"database connection string")
 	var flagKey = pflag.StringP("key", "k", "",
 		"Key for signing the requests")
+	var flagAuditFile = pflag.StringP("audit-file", "c", "",
+		"file to store requests log")
+	var flagAuditURL = pflag.StringP("audit-url", "u", "",
+		"url to send requests log")
 
 	err := env.Parse(&result)
 
@@ -73,11 +106,17 @@ func getConfig() (result Config) {
 	if result.FileStoragePath == "" {
 		result.FileStoragePath = *flagFileStoragePath
 	}
-	if result.Restore == false {
+	if !result.Restore {
 		result.Restore = *flagRestore
 	}
-	if result.DbConnSrting == "" {
-		result.DbConnSrting = *flagDbConnSrting
+	if result.DBConnString == "" {
+		result.DBConnString = *flagDBConnString
+	}
+	if result.AuditFile == "" {
+		result.AuditFile = *flagAuditFile
+	}
+	if result.AuditURL == "" {
+		result.AuditURL = *flagAuditURL
 	}
 
 	if result.Key == "" {
@@ -107,18 +146,22 @@ func run() error {
 	log.InfoMsg("Restore on startup: ", conf.Restore)
 	log.InfoMsg("==================================")
 	var storage handler.Storage
-	if conf.DbConnSrting != "" {
+	if conf.DBConnString != "" {
 		log.InfoMsg("Use DataBase storage")
 		result, err := logger.ExecuteWithRetry(func(args ...interface{}) (interface{}, error) {
-			return repository.NewSqlStorage(conf.DbConnSrting)
+			return repository.NewSQLStorage(conf.DBConnString)
 		})
 		if err != nil {
 			return err
 		}
-		storage = result.(*repository.SqlStorage)
-		defer storage.(*repository.SqlStorage).Close()
-		storage.(*repository.SqlStorage).DoMigrate()
-		storage.(*repository.SqlStorage).Restore(ctx)
+		storage = result.(*repository.SQLStorage)
+		defer storage.(*repository.SQLStorage).Close()
+		if err := storage.(*repository.SQLStorage).DoMigrate(); err != nil {
+			return err
+		}
+		if err := storage.(*repository.SQLStorage).Restore(ctx); err != nil {
+			return err
+		}
 	} else {
 		log.InfoMsg("Use Memory storage")
 		storage = repository.NewMemStorage(conf.StoreInterval, conf.FileStoragePath)
@@ -133,12 +176,9 @@ func run() error {
 		defer syncTicker.Stop()
 
 		go func() {
-			for {
-				select {
-				case <-syncTicker.C:
-					if err := storage.SyncIfNeed(ctx); err != nil {
-						log.WarnMsg("Error during periodic sync:", err)
-					}
+			for range syncTicker.C {
+				if err := storage.SyncIfNeed(ctx); err != nil {
+					log.WarnMsg("Error during periodic sync:", err)
 				}
 			}
 		}()
@@ -149,10 +189,50 @@ func run() error {
 		logger.Fatal(err)
 	}
 
-	router := handler.GetRouter(storage)
-	err = http.ListenAndServe(conf.Address, crypto.SignHandle(compressor.GzipHandle(router)))
-	if err != nil {
-		return err
+	audit := auditor.NewAuditor()
+
+	if conf.AuditFile != "" {
+		fileAudit, err := auditor.NewFileAuditor(conf.AuditFile)
+		if err != nil {
+			return err
+		}
+		defer func() {
+			if err := fileAudit.Close(); err != nil {
+				log.WarnMsg("Error closing audit file:", err)
+			}
+		}()
+		audit.Register(fileAudit)
 	}
-	return nil
+	if conf.AuditURL != "" {
+		audit.Register(auditor.NewURLAuditor(conf.AuditURL))
+	}
+	defer audit.Close()
+
+	router := handler.GetRouter(storage, audit)
+	server := &http.Server{
+		Addr:    conf.Address,
+		Handler: crypto.SignHandle(compressor.GzipHandle(router)),
+	}
+
+	serverErr := make(chan error, 1)
+	go func() {
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serverErr <- err
+			return
+		}
+		serverErr <- nil
+	}()
+
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(stop)
+
+	select {
+	case err := <-serverErr:
+		return err
+	case <-stop:
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		return server.Shutdown(shutdownCtx)
+	}
 }
