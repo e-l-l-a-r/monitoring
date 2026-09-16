@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/e-l-l-a-r/monitoring/internal/logger"
+	"github.com/e-l-l-a-r/monitoring/internal/pool"
 )
 
 const observerQueueSize = 100
@@ -25,11 +26,12 @@ type Publisher interface {
 
 type observerWorker struct {
 	observer observer
-	tasks    chan AuditData
+	tasks    chan *AuditData
 }
 
 type auditor struct {
 	observers map[string]*observerWorker
+	events    *pool.Pool[*AuditData]
 	mtx       sync.Mutex
 	wg        sync.WaitGroup
 	closed    bool
@@ -53,7 +55,7 @@ func (a *auditor) Register(o observer) {
 
 	worker := &observerWorker{
 		observer: o,
-		tasks:    make(chan AuditData, observerQueueSize),
+		tasks:    make(chan *AuditData, observerQueueSize),
 	}
 	a.observers[id] = worker
 
@@ -80,22 +82,40 @@ func (a *auditor) Notify(data *AuditData) error {
 	}
 
 	for _, worker := range a.observers {
+		event := a.acquire(data)
 		select {
-		case worker.tasks <- *data:
+		case worker.tasks <- event:
 		default:
+			a.events.Put(event)
 			logger.Warn("Audit observer queue is full, dropping event: ", worker.observer.getID())
 		}
 	}
 	return nil
 }
 
+// acquire берет объект события из пула и заполняет его копией данных аудита.
+// Каждый наблюдатель получает собственный объект, поэтому владение событием не разделяется.
+func (a *auditor) acquire(data *AuditData) *AuditData {
+	event, ok := a.events.Get()
+	if !ok {
+		event = &AuditData{}
+	}
+
+	event.TS = data.TS
+	event.IPAddress = data.IPAddress
+	event.Metrics = append(event.Metrics[:0], data.Metrics...)
+
+	return event
+}
+
 func (a *auditor) runObserver(worker *observerWorker) {
 	defer a.wg.Done()
 
 	for data := range worker.tasks {
-		if err := worker.observer.update(&data); err != nil {
+		if err := worker.observer.update(data); err != nil {
 			logger.Warn("Audit observer error: ", err.Error())
 		}
+		a.events.Put(data)
 	}
 }
 
@@ -117,7 +137,7 @@ func (a *auditor) Close() {
 
 // NewAuditor создает новый экземпляр аудитора, реализующего интерфейс Publisher.
 func NewAuditor() *auditor {
-	return &auditor{}
+	return &auditor{events: pool.New[*AuditData]()}
 }
 
 type auditorKey struct{}
