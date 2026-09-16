@@ -14,6 +14,8 @@ var AllTypes = [...]string{Gauge, Counter}
 // Metrics представляет модель данных для метрики.
 // Содержит идентификатор, тип и значение (Delta для счетчика, Value для шкалы).
 // Delta и Value объявлены через указатели, чтобы отличать значение 0 от не заданного значения.
+//
+// generate:reset
 type Metrics struct {
 	ID    string   `json:"id"`              // Идентификатор метрики
 	MType string   `json:"type"`            // Тип метрики (gauge или counter)

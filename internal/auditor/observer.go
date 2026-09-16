@@ -12,6 +12,8 @@ type observer interface {
 }
 
 // AuditData содержит информацию для записи в аудит: временную метку, список метрик и IP-адрес клиента.
+//
+// generate:reset
 type AuditData struct {
 	IPAddress string   `json:"ip_address"`
 	Metrics   []string `json:"metrics"`
