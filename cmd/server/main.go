@@ -25,6 +25,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"net/http"
 	_ "net/http/pprof" // подключаем пакет pprof
 	"os"
@@ -54,6 +55,10 @@ type Config struct {
 	StoreInterval   uint   `env:"STORE_INTERVAL"`
 	Restore         bool   `env:"RESTORE"`
 }
+
+var buildVersion string
+var buildDate string
+var buildCommit string
 
 func parseFlags() {
 	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
@@ -127,6 +132,16 @@ func getConfig() (result Config) {
 }
 
 func main() {
+	if buildVersion == "" {
+		buildVersion = "N/A"
+	}
+	if buildDate == "" {
+		buildDate = "N/A"
+	}
+	if buildCommit == "" {
+		buildCommit = "N/A"
+	}
+	fmt.Printf("Build version: %s\nBuild date: %s\nBuild commit: %s\n", buildVersion, buildDate, buildCommit)
 	if err := run(); err != nil {
 		logger.Fatal(err)
 	}

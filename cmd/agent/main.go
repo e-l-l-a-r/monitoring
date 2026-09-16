@@ -37,6 +37,10 @@ import (
 	"github.com/e-l-l-a-r/monitoring/internal/model"
 )
 
+var buildVersion string
+var buildDate string
+var buildCommit string
+
 type config struct {
 	Address        string `env:"ADDRESS"`
 	LogLevel       string `env:"LOG_LEVEL"`
@@ -218,6 +222,17 @@ func asyncSender(url string, data <-chan agent.ChannaledMetric,
 }
 
 func main() {
+	if buildVersion == "" {
+		buildVersion = "N/A"
+	}
+	if buildDate == "" {
+		buildDate = "N/A"
+	}
+	if buildCommit == "" {
+		buildCommit = "N/A"
+	}
+	fmt.Printf("Build version: %s\nBuild date: %s\nBuild commit: %s\n", buildVersion, buildDate, buildCommit)
+
 	conf := getConfig()
 	log, err := logger.InitLogger(conf.LogLevel)
 
