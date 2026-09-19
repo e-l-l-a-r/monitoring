@@ -8,9 +8,9 @@ import (
 )
 
 type fileAuditor struct {
+	file *os.File
 	baseObserver
 	fileName string
-	file     *os.File
 	mtx      sync.Mutex
 }
 

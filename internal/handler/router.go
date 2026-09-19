@@ -1,4 +1,4 @@
-// Пакет handler предоставляет HTTP-обработчики для управления метриками.
+// Package handler предоставляет HTTP-обработчики для управления метриками.
 package handler
 
 import (
@@ -115,7 +115,7 @@ func getMetric(storage Storage) http.HandlerFunc {
 			}
 			return
 		}
-		resp.Write([]byte(strconv.FormatFloat(val, 'f', -1, 64)))
+		_, _ = resp.Write([]byte(strconv.FormatFloat(val, 'f', -1, 64)))
 	}
 }
 
@@ -187,16 +187,20 @@ func updMetric(storage Storage) http.HandlerFunc {
 		audit, ok := auditor.FromContext(ctx)
 		if ok {
 			data := auditor.NewAuditData([]string{chi.URLParam(req, "name")}, requestIP(req))
-			if err := audit.Notify(&data); err != nil {
-				logger.Warn("Audit error: ", err.Error())
+			if e := audit.Notify(&data); e != nil {
+				logger.Warn("Audit error: ", e.Error())
 				http.Error(resp, "Internal Server Error", http.StatusInternalServerError)
 				return
 			}
 		}
 
-		storage.SyncIfNeed(ctx)
+		if e := storage.SyncIfNeed(ctx); e != nil {
+			logger.Warn("sync error: ", e.Error())
+		}
 
-		resp.Write([]byte(""))
+		if _, e := resp.Write([]byte("")); e != nil {
+			logger.Warn("send response error: ", e.Error())
+		}
 	}
 
 }
@@ -214,9 +218,9 @@ func updJSONMetric(storage Storage) http.HandlerFunc {
 		}
 		dec := json.NewDecoder(dataReader)
 
-		if err := dec.Decode(&metric); err != nil {
+		if e := dec.Decode(&metric); e != nil {
 			http.Error(resp, "Incorrect value", http.StatusBadRequest)
-			logger.Info("cannot decode request JSON body", zap.Error(err))
+			logger.Info("cannot decode request JSON body", zap.Error(e))
 			return
 		}
 
@@ -234,16 +238,16 @@ func updJSONMetric(storage Storage) http.HandlerFunc {
 		audit, ok := auditor.FromContext(ctx)
 		if ok {
 			data := auditor.NewAuditData([]string{metric.ID}, requestIP(req))
-			if err := audit.Notify(&data); err != nil {
-				logger.Warn("Audit error: ", err.Error())
+			if e := audit.Notify(&data); e != nil {
+				logger.Warn("Audit error: ", e.Error())
 				http.Error(resp, "Internal Server Error", http.StatusInternalServerError)
 				return
 			}
 		}
 
-		storage.SyncIfNeed(ctx)
+		_ = storage.SyncIfNeed(ctx)
 
-		resp.Write([]byte(""))
+		_, _ = resp.Write([]byte(""))
 	}
 }
 
@@ -260,9 +264,9 @@ func updBatchMetrics(storage Storage) http.HandlerFunc {
 		}
 		dec := json.NewDecoder(dataReader)
 
-		if err := dec.Decode(&metrics); err != nil {
+		if e := dec.Decode(&metrics); e != nil {
 			http.Error(resp, "Incorrect value", http.StatusBadRequest)
-			logger.Info("cannot decode request JSON body", zap.Error(err))
+			logger.Info("cannot decode request JSON body", zap.Error(e))
 			return
 		}
 
@@ -284,16 +288,16 @@ func updBatchMetrics(storage Storage) http.HandlerFunc {
 				metricNames[num] = metric.ID
 			}
 			data := auditor.NewAuditData(metricNames, requestIP(req))
-			if err := audit.Notify(&data); err != nil {
-				logger.Warn("Audit error: ", err.Error())
+			if e := audit.Notify(&data); e != nil {
+				logger.Warn("Audit error: ", e.Error())
 				http.Error(resp, "Internal Server Error", http.StatusInternalServerError)
 				return
 			}
 		}
 
-		storage.SyncIfNeed(ctx)
+		_ = storage.SyncIfNeed(ctx)
 
-		resp.Write([]byte(""))
+		_, _ = resp.Write([]byte(""))
 	}
 }
 
@@ -306,13 +310,13 @@ func getJSONMetric(storage Storage) http.HandlerFunc {
 		dec := json.NewDecoder(req.Body)
 		resp.Header().Set("Content-Type", "application/json")
 
-		if err := dec.Decode(&metric); err != nil {
+		if e := dec.Decode(&metric); e != nil {
 			http.Error(resp, "Incorrect value", http.StatusBadRequest)
-			logger.Info("cannot decode request JSON body", zap.Error(err))
+			logger.Info("cannot decode request JSON body", zap.Error(e))
 			return
 		}
 
-		storage.GetMetricValue(ctx, &metric)
+		_ = storage.GetMetricValue(ctx, &metric)
 
 		// сериализуем ответ сервера
 		enc := json.NewEncoder(resp)
@@ -336,7 +340,7 @@ func pingDB(storage Storage) http.HandlerFunc {
 				logger.Warn("Ping error: ", err.Error())
 				return
 			}
-			resp.Write([]byte(""))
+			_, _ = resp.Write([]byte(""))
 		default:
 			http.Error(resp, "Incorrect storage type", http.StatusInternalServerError)
 			logger.Warn("Incorrect storage type")

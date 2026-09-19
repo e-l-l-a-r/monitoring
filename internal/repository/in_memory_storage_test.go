@@ -21,10 +21,10 @@ func TestMemStorage_GoodGaugeCases(t *testing.T) {
 		val      float64
 		expected float64
 	}{
-		{"Init gauge", "test", model.Gauge, 1.0, 1.0},
-		{"Change gauge", "test", model.Gauge, 2.0, 2.0},
-		{"Change to negative", "test", model.Gauge, -1.0, -1.0},
-		{"Init other gauge", "alt_test", model.Gauge, 1.5, 1.5},
+		{"Инициализация gauge", "test", model.Gauge, 1.0, 1.0},
+		{"Изменение gauge", "test", model.Gauge, 2.0, 2.0},
+		{"Изменение на отрицательное", "test", model.Gauge, -1.0, -1.0},
+		{"Инициализация другого gauge", "alt_test", model.Gauge, 1.5, 1.5},
 	}
 
 	for _, tt := range tests {
@@ -48,9 +48,9 @@ func TestMemStorage_GoodCounterCases(t *testing.T) {
 		val      int64
 		expected float64
 	}{
-		{"Init counter", "cnt", model.Counter, 1, 1},
-		{"Update counter", "cnt", model.Counter, 2, 3},
-		{"Update with negative", "cnt", model.Counter, -1, 2},
+		{"Инициализация counter", "cnt", model.Counter, 1, 1},
+		{"Обновление counter", "cnt", model.Counter, 2, 3},
+		{"Обновление на отрицательное", "cnt", model.Counter, -1, 2},
 	}
 
 	for _, tt := range tests {
@@ -73,8 +73,8 @@ func TestMemStorage_BadCases(t *testing.T) {
 		val      float64
 		expected string
 	}{
-		{"Add incorrect type", "cnt", model.Gauge, 1.0, "type mismatch"},
-		{"Add wrong type", "bad", "bad", 2.0, "invalid type"},
+		{"Добавление неверного типа", "cnt", model.Gauge, 1.0, "type mismatch"},
+		{"Добавление ошибочного типа", "bad", "bad", 2.0, "invalid type"},
 	}
 	ctx, cancel := context.WithCancel(context.TODO())
 	defer cancel()
@@ -99,7 +99,7 @@ func TestAddMetricData(t *testing.T) {
 		err      error
 	}{
 		{
-			name:    "Add new gauge metric",
+			name:    "Добавление новой метрики gauge",
 			initial: map[string]model.Metrics{},
 			metric: model.Metrics{
 				ID:    "test_gauge",
@@ -116,7 +116,7 @@ func TestAddMetricData(t *testing.T) {
 			err: nil,
 		},
 		{
-			name: "Update existing gauge",
+			name: "Обновление существующей gauge",
 			initial: map[string]model.Metrics{
 				"test_gauge": {
 					ID:    "test_gauge",
@@ -139,7 +139,7 @@ func TestAddMetricData(t *testing.T) {
 			err: nil,
 		},
 		{
-			name: "Update existing counter",
+			name: "Обновление существующего counter",
 			initial: map[string]model.Metrics{
 				"test_counter": {
 					ID:    "test_counter",
@@ -162,7 +162,7 @@ func TestAddMetricData(t *testing.T) {
 			err: nil,
 		},
 		{
-			name: "Type mismatch",
+			name: "Несоответствие типов",
 			initial: map[string]model.Metrics{
 				"test_metric": {
 					ID:    "test_metric",
@@ -185,7 +185,7 @@ func TestAddMetricData(t *testing.T) {
 			err: errors.New("type mismatch"),
 		},
 		{
-			name:    "Invalid metric type",
+			name:    "Неверный тип метрики",
 			initial: map[string]model.Metrics{},
 			metric: model.Metrics{
 				ID:    "invalid",
@@ -228,7 +228,7 @@ func TestGetMetricValue(t *testing.T) {
 		err      error
 	}{
 		{
-			name: "Get existing gauge",
+			name: "Получение существующей gauge",
 			initial: map[string]model.Metrics{
 				"test_gauge": {
 					ID:    "test_gauge",
@@ -248,7 +248,7 @@ func TestGetMetricValue(t *testing.T) {
 			err: nil,
 		},
 		{
-			name: "Get existing counter",
+			name: "Получение существующего counter",
 			initial: map[string]model.Metrics{
 				"test_counter": {
 					ID:    "test_counter",
@@ -268,7 +268,7 @@ func TestGetMetricValue(t *testing.T) {
 			err: nil,
 		},
 		{
-			name: "Metric not found",
+			name: "Метрика не найдена",
 			initial: map[string]model.Metrics{
 				"other_metric": {
 					ID:    "other_metric",
@@ -284,7 +284,7 @@ func TestGetMetricValue(t *testing.T) {
 			err:      &MetricNotFoundError{"missing_metric"},
 		},
 		{
-			name: "Type mismatch",
+			name: "Несоответствие типов",
 			initial: map[string]model.Metrics{
 				"test_metric": {
 					ID:    "test_metric",

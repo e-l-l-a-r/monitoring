@@ -37,12 +37,16 @@ import (
 	"github.com/e-l-l-a-r/monitoring/internal/model"
 )
 
+var buildVersion string
+var buildDate string
+var buildCommit string
+
 type config struct {
 	Address        string `env:"ADDRESS"`
-	PollInterval   uint   `env:"POLL_INTERVAL"`
-	ReportInterval uint   `env:"REPORT_INTERVAL"`
 	LogLevel       string `env:"LOG_LEVEL"`
 	Key            string `env:"KEY"`
+	PollInterval   uint   `env:"POLL_INTERVAL"`
+	ReportInterval uint   `env:"REPORT_INTERVAL"`
 	RateLimit      uint   `env:"RATE_LIMIT"`
 }
 
@@ -59,17 +63,17 @@ func parseFlags() {
 
 func getConfig() (result config) {
 	var flagRunAddr = pflag.StringP("address", "a", "localhost:8080",
-		"address and port of server to connect")
+		"адрес и порт сервера для подключения")
 	var pollInterval = pflag.UintP("poll-interval", "p", 2,
-		"number of seconds to update metrics")
+		"интервал обновления метрик в секундах")
 	var reportInterval = pflag.UintP("report-interval", "r", 10,
-		"number of seconds to send metrics to server")
+		"интервал отправки метрик на сервер в секундах")
 	var flagLogLevel = pflag.StringP("log-level", "v", "Info",
-		"log level, may be Debug, Info (default), Warning, Error")
+		"уровень логирования, может быть Debug, Info (по умолчанию), Warning, Error")
 	var flagKey = pflag.StringP("key", "k", "",
-		"Key for signing the requests")
+		"Ключ для подписи запросов")
 	var flagRateLimit = pflag.UintP("rate-limit", "l", 0,
-		"Rate limit for requests")
+		"Лимит запросов")
 
 	err := env.Parse(&result)
 	if err != nil {
@@ -119,7 +123,7 @@ func sendData(client *http.Client, log Logger, url string, val interface{}) erro
 	isCompressed := true
 	reader, err := compressor.NewGzippedReader(data)
 	if err != nil {
-		log.WarnMsg("error while compressing data: ", err, ". Send uncompressed.")
+		log.WarnMsg("ошибка при сжатии данных: ", err, ". Отправка без сжатия.")
 		isCompressed = false
 	}
 	reader, sign, err := crypto.NewSegnedReader(reader)
@@ -218,6 +222,8 @@ func asyncSender(url string, data <-chan agent.ChannaledMetric,
 }
 
 func main() {
+	logger.PrintBuildInfo(buildVersion, buildDate, buildCommit)
+
 	conf := getConfig()
 	log, err := logger.InitLogger(conf.LogLevel)
 
@@ -245,7 +251,7 @@ func main() {
 		if err != nil {
 			logger.Fatal(err)
 		}
-		os.Exit(0)
+		return
 	}
 
 	doneCh := make(chan struct{})

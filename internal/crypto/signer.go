@@ -1,4 +1,4 @@
-// Пакет crypto предоставляет инструменты для подписи данных с использованием HMAC-SHA256.
+// Package crypto предоставляет инструменты для подписи данных с использованием HMAC-SHA256.
 package crypto
 
 import (
@@ -103,7 +103,7 @@ func SignHandle(next http.Handler) http.Handler {
 		}
 
 		data, _ := io.ReadAll(r.Body)
-		r.Body.Close()
+		_ = r.Body.Close()
 		sign := signer.SignData(data)
 		if sign != key {
 			// если ключ не совпадает,отбрасываем запрос с ошибкой

@@ -1,4 +1,4 @@
-// Пакет logger предоставляет функционал для логирования HTTP-запросов и системных событий.
+// Package logger предоставляет функционал для логирования HTTP-запросов и системных событий.
 package logger
 
 import (
@@ -124,7 +124,7 @@ func (l *logger) DoRequestWithLog(c *http.Client, req *http.Request) (resp *http
 		l.InfoMsg("url:", req.URL, "\tstatus code:", resp.StatusCode, "Body", string(bodyBytes))
 		err = fmt.Errorf("status code: %d", resp.StatusCode)
 		//io.Copy(os.Stdout, resp.Body)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 	} else {
 		l.InfoMsg("Sent: ", req.URL, "Data: ", req.Body)
 	}
@@ -184,4 +184,17 @@ func Info(args ...interface{}) {
 	} else {
 		console.Println(args...)
 	}
+}
+func PrintBuildInfo(version string, date string, commit string) {
+	if version == "" {
+		version = "N/A"
+	}
+	if date == "" {
+		date = "N/A"
+	}
+	if commit == "" {
+		commit = "N/A"
+	}
+	fmt.Printf("Build version: %s\nBuild date: %s\nBuild commit: %s\n", version, date, commit)
+
 }

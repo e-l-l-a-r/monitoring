@@ -1,3 +1,4 @@
+// Package repository предоставляет реализации хранилищ для метрик.
 package repository
 
 import (
@@ -19,8 +20,8 @@ import (
 // SQLStorage предоставляет реализацию хранилища метрик в базе данных SQL.
 // Расширяет MemStorage, обеспечивая персистентность.
 type SQLStorage struct {
-	MemStorage         // Внутреннее хранилище в памяти для быстрого доступа
 	db         *sql.DB // Подключение к базе данных
+	MemStorage         // Внутреннее хранилище в памяти для быстрого доступа
 }
 
 type metadata struct {

@@ -36,7 +36,12 @@ type mockObserver struct {
 }
 
 func (m *mockObserver) update(data *AuditData) error {
-	m.received <- data
+	copied := &AuditData{
+		TS:        data.TS,
+		IPAddress: data.IPAddress,
+		Metrics:   append([]string(nil), data.Metrics...),
+	}
+	m.received <- copied
 	return nil
 }
 
@@ -108,6 +113,102 @@ func TestAuditorNotifyDoesNotBlockOnSlowObserver(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("fast observer was blocked by slow observer")
 	}
+}
+
+func TestAuditorReturnsEventsToPool(t *testing.T) {
+	a := NewAuditor()
+	defer a.Close()
+
+	obs := &mockObserver{
+		baseObserver: baseObserver{id: "mock"},
+		received:     make(chan *AuditData, 1),
+	}
+	a.Register(obs)
+
+	data := NewAuditData([]string{"m1"}, "127.0.0.1")
+	require.NoError(t, a.Notify(&data))
+
+	select {
+	case <-obs.received:
+	case <-time.After(time.Second):
+		t.Fatal("observer did not receive audit data")
+	}
+
+	var event *AuditData
+	require.Eventually(t, func() bool {
+		var ok bool
+		event, ok = a.events.Get()
+		return ok
+	}, time.Second, 10*time.Millisecond, "обработанное событие должно вернуться в пул")
+
+	assert.Empty(t, event.Metrics, "Get() сбрасывает состояние события")
+	assert.Empty(t, event.IPAddress)
+	assert.Zero(t, event.TS)
+	assert.Positive(t, cap(event.Metrics), "backing-массив имён метрик сохраняется для переиспользования")
+}
+
+func TestAuditorGivesEachObserverOwnEvent(t *testing.T) {
+	a := NewAuditor()
+	defer a.Close()
+
+	first := &mockObserver{
+		baseObserver: baseObserver{id: "first"},
+		received:     make(chan *AuditData, 1),
+	}
+	second := &mockObserver{
+		baseObserver: baseObserver{id: "second"},
+		received:     make(chan *AuditData, 1),
+	}
+	a.Register(first)
+	a.Register(second)
+
+	data := NewAuditData([]string{"m1"}, "127.0.0.1")
+	require.NoError(t, a.Notify(&data))
+
+	for _, obs := range []*mockObserver{first, second} {
+		select {
+		case received := <-obs.received:
+			assert.Equal(t, data.Metrics, received.Metrics)
+			assert.Equal(t, data.IPAddress, received.IPAddress)
+			assert.Equal(t, data.TS, received.TS)
+		case <-time.After(time.Second):
+			t.Fatalf("observer %s did not receive audit data", obs.getID())
+		}
+	}
+}
+
+func TestAuditorReusesPooledEvent(t *testing.T) {
+	a := NewAuditor()
+	defer a.Close()
+
+	obs := &mockObserver{
+		baseObserver: baseObserver{id: "mock"},
+		received:     make(chan *AuditData, 1),
+	}
+	a.Register(obs)
+
+	pooled := &AuditData{Metrics: make([]string, 0, 8)}
+	a.events.Put(pooled)
+
+	data := NewAuditData([]string{"m1", "m2"}, "127.0.0.1")
+	require.NoError(t, a.Notify(&data))
+
+	select {
+	case received := <-obs.received:
+		assert.Equal(t, data.Metrics, received.Metrics)
+	case <-time.After(time.Second):
+		t.Fatal("observer did not receive audit data")
+	}
+
+	var event *AuditData
+	require.Eventually(t, func() bool {
+		var ok bool
+		event, ok = a.events.Get()
+		return ok
+	}, time.Second, 10*time.Millisecond)
+
+	assert.Same(t, pooled, event, "Notify должен был взять готовый объект из пула, а не аллоцировать новый")
+	assert.Equal(t, 8, cap(event.Metrics), "емкость слайса имён переиспользована без аллокации")
 }
 
 func TestWithPublisher(t *testing.T) {

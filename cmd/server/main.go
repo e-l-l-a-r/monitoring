@@ -46,14 +46,18 @@ import (
 type Config struct {
 	Address         string `env:"ADDRESS"`
 	LogLevel        string `env:"LOG_LEVEL"`
-	StoreInterval   uint   `env:"STORE_INTERVAL"`
 	FileStoragePath string `env:"FILE_STORAGE_PATH"`
-	Restore         bool   `env:"RESTORE"`
 	DBConnString    string `env:"DATABASE_DSN"`
 	Key             string `env:"KEY"`
 	AuditFile       string `env:"AUDIT_FILE"`
 	AuditURL        string `env:"AUDIT_URL"`
+	StoreInterval   uint   `env:"STORE_INTERVAL"`
+	Restore         bool   `env:"RESTORE"`
 }
+
+var buildVersion string
+var buildDate string
+var buildCommit string
 
 func parseFlags() {
 	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
@@ -68,23 +72,23 @@ func parseFlags() {
 
 func getConfig() (result Config) {
 	var flagRunAddr = pflag.StringP("address", "a", "localhost:8080",
-		"address and port to run server")
+		"адрес и порт для запуска сервера")
 	var flagLogLevel = pflag.StringP("log-level", "l", "Info",
-		"log level, may be Debug, Info (default), Warning, Error")
+		"уровень логирования, может быть Debug, Info (по умолчанию), Warning, Error")
 	var flagStoreInterval = pflag.UintP("store-interval", "i", 300,
-		"number of seconds to store metrics to file, zero value for sync write")
+		"количество секунд для сохранения метрик в файл, нулевое значение для синхронной записи")
 	var flagFileStoragePath = pflag.StringP("file-storage-path", "f", "metrics.json",
-		"file to store metrics")
+		"файл для хранения метрик")
 	var flagRestore = pflag.BoolP("restore", "r", false,
-		"restore metrics from file")
+		"восстанавливать метрики из файла")
 	var flagDBConnString = pflag.StringP("db-conn-string", "d", "",
-		"database connection string")
+		"строка подключения к базе данных")
 	var flagKey = pflag.StringP("key", "k", "",
-		"Key for signing the requests")
+		"Ключ для подписи запросов")
 	var flagAuditFile = pflag.StringP("audit-file", "c", "",
-		"file to store requests log")
+		"файл для хранения лога запросов")
 	var flagAuditURL = pflag.StringP("audit-url", "u", "",
-		"url to send requests log")
+		"URL для отправки лога запросов")
 
 	err := env.Parse(&result)
 
@@ -127,6 +131,7 @@ func getConfig() (result Config) {
 }
 
 func main() {
+	logger.PrintBuildInfo(buildVersion, buildDate, buildCommit)
 	if err := run(); err != nil {
 		logger.Fatal(err)
 	}
@@ -148,27 +153,27 @@ func run() error {
 	var storage handler.Storage
 	if conf.DBConnString != "" {
 		log.InfoMsg("Use DataBase storage")
-		result, err := logger.ExecuteWithRetry(func(args ...interface{}) (interface{}, error) {
+		res, e := logger.ExecuteWithRetry(func(args ...interface{}) (interface{}, error) {
 			return repository.NewSQLStorage(conf.DBConnString)
 		})
-		if err != nil {
-			return err
+		if e != nil {
+			return e
 		}
-		storage = result.(*repository.SQLStorage)
+		storage = res.(*repository.SQLStorage)
 		defer storage.(*repository.SQLStorage).Close()
-		if err := storage.(*repository.SQLStorage).DoMigrate(); err != nil {
-			return err
+		if e := storage.(*repository.SQLStorage).DoMigrate(); e != nil {
+			return e
 		}
-		if err := storage.(*repository.SQLStorage).Restore(ctx); err != nil {
-			return err
+		if e := storage.(*repository.SQLStorage).Restore(ctx); e != nil {
+			return e
 		}
 	} else {
 		log.InfoMsg("Use Memory storage")
 		storage = repository.NewMemStorage(conf.StoreInterval, conf.FileStoragePath)
 		if conf.Restore {
-			err := storage.(*repository.MemStorage).RestoreFromFile(ctx)
-			if err != nil {
-				log.WarnMsg("Error restoring metrics from file", err)
+			e := storage.(*repository.MemStorage).RestoreFromFile(ctx)
+			if e != nil {
+				log.WarnMsg("Error restoring metrics from file", e)
 			}
 		}
 
@@ -177,15 +182,14 @@ func run() error {
 
 		go func() {
 			for range syncTicker.C {
-				if err := storage.SyncIfNeed(ctx); err != nil {
-					log.WarnMsg("Error during periodic sync:", err)
+				if e := storage.SyncIfNeed(ctx); e != nil {
+					log.WarnMsg("Error during periodic sync:", e)
 				}
 			}
 		}()
 	}
 
-	_, err = crypto.InitSigner(conf.Key)
-	if err != nil {
+	if _, err := crypto.InitSigner(conf.Key); err != nil {
 		logger.Fatal(err)
 	}
 
