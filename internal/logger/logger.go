@@ -185,3 +185,16 @@ func Info(args ...interface{}) {
 		console.Println(args...)
 	}
 }
+func PrintBuildInfo(version string, date string, commit string) {
+	if version == "" {
+		version = "N/A"
+	}
+	if date == "" {
+		date = "N/A"
+	}
+	if commit == "" {
+		commit = "N/A"
+	}
+	fmt.Printf("Build version: %s\nBuild date: %s\nBuild commit: %s\n", version, date, commit)
+
+}

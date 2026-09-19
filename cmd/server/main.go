@@ -25,7 +25,6 @@ import (
 	"context"
 	"errors"
 	"flag"
-	"fmt"
 	"net/http"
 	_ "net/http/pprof" // подключаем пакет pprof
 	"os"
@@ -132,16 +131,7 @@ func getConfig() (result Config) {
 }
 
 func main() {
-	if buildVersion == "" {
-		buildVersion = "N/A"
-	}
-	if buildDate == "" {
-		buildDate = "N/A"
-	}
-	if buildCommit == "" {
-		buildCommit = "N/A"
-	}
-	fmt.Printf("Build version: %s\nBuild date: %s\nBuild commit: %s\n", buildVersion, buildDate, buildCommit)
+	logger.PrintBuildInfo(buildVersion, buildDate, buildCommit)
 	if err := run(); err != nil {
 		logger.Fatal(err)
 	}
@@ -199,11 +189,9 @@ func run() error {
 		}()
 	}
 
-	signer, err := crypto.InitSigner(conf.Key)
-	if err != nil {
+	if _, err := crypto.InitSigner(conf.Key); err != nil {
 		logger.Fatal(err)
 	}
-	_ = signer
 
 	audit := auditor.NewAuditor()
 

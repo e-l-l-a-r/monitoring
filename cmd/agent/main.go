@@ -222,16 +222,7 @@ func asyncSender(url string, data <-chan agent.ChannaledMetric,
 }
 
 func main() {
-	if buildVersion == "" {
-		buildVersion = "N/A"
-	}
-	if buildDate == "" {
-		buildDate = "N/A"
-	}
-	if buildCommit == "" {
-		buildCommit = "N/A"
-	}
-	fmt.Printf("Build version: %s\nBuild date: %s\nBuild commit: %s\n", buildVersion, buildDate, buildCommit)
+	logger.PrintBuildInfo(buildVersion, buildDate, buildCommit)
 
 	conf := getConfig()
 	log, err := logger.InitLogger(conf.LogLevel)

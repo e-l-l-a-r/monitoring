@@ -194,9 +194,13 @@ func updMetric(storage Storage) http.HandlerFunc {
 			}
 		}
 
-		_ = storage.SyncIfNeed(ctx)
+		if e := storage.SyncIfNeed(ctx); e != nil {
+			logger.Warn("sync error: ", e.Error())
+		}
 
-		_, _ = resp.Write([]byte(""))
+		if _, e := resp.Write([]byte("")); e != nil {
+			logger.Warn("send response error: ", e.Error())
+		}
 	}
 
 }

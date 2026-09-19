@@ -1,5 +1,4 @@
 // Package osexitanalyzer определяет анализатор, который запрещает прямой вызов os.Exit в функции main пакета main.
-
 package osexitanalyzer
 
 import (
@@ -22,9 +21,9 @@ func run(pass *analysis.Pass) (interface{}, error) {
 	}
 
 	for _, file := range pass.Files {
-		// Игнормруем кэш и тесты
+		// Игнорируем тесты
 		fileName := pass.Fset.Position(file.Pos()).Filename
-		if strings.Contains(fileName, ".cache") || strings.Contains(fileName, "_test.go") {
+		if strings.Contains(fileName, "_test.go") {
 			continue
 		}
 
