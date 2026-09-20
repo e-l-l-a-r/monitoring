@@ -14,6 +14,8 @@
 //   - --key, -k / KEY - ключ для подписи запросов.
 //   - --rate-limit, -l / RATE_LIMIT - количество параллельных отправителей;
 //     значение 0 включает синхронную отправку.
+//   - --crypto-key / CRYPTO_KEY - путь до файла с публичным ключом для
+//     шифрования отправляемых данных.
 package main
 
 import (
@@ -47,6 +49,7 @@ type config struct {
 	Key            string `env:"KEY"`
 	PollInterval   uint   `env:"POLL_INTERVAL"`
 	ReportInterval uint   `env:"REPORT_INTERVAL"`
+	CryptoKey      string `env:"CRYPTO_KEY"`
 	RateLimit      uint   `env:"RATE_LIMIT"`
 }
 
@@ -74,6 +77,8 @@ func getConfig() (result config) {
 		"Ключ для подписи запросов")
 	var flagRateLimit = pflag.UintP("rate-limit", "l", 0,
 		"Лимит запросов")
+	var flagCryptoKey = pflag.String("crypto-key", "",
+		"path to file with public RSA key")
 
 	err := env.Parse(&result)
 	if err != nil {
@@ -106,6 +111,10 @@ func getConfig() (result config) {
 		result.RateLimit = *flagRateLimit
 	}
 
+	if result.CryptoKey == "" {
+		result.CryptoKey = *flagCryptoKey
+	}
+
 	return
 }
 
@@ -127,6 +136,10 @@ func sendData(client *http.Client, log Logger, url string, val interface{}) erro
 		isCompressed = false
 	}
 	reader, sign, err := crypto.NewSegnedReader(reader)
+	if err != nil {
+		return err
+	}
+	reader, err = crypto.NewEncryptedReader(reader)
 	if err != nil {
 		return err
 	}
@@ -241,6 +254,11 @@ func main() {
 	}
 
 	_, err = crypto.InitSigner(conf.Key)
+	if err != nil {
+		logger.Fatal(err)
+	}
+
+	_, err = crypto.InitEncryptor(conf.CryptoKey)
 	if err != nil {
 		logger.Fatal(err)
 	}

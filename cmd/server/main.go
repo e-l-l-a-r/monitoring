@@ -19,6 +19,8 @@
 //   - --key, -k / KEY - ключ для проверки подписи запросов.
 //   - --audit-file, -c / AUDIT_FILE - файл для записи аудита запросов.
 //   - --audit-url, -u / AUDIT_URL - URL для отправки аудита запросов.
+//   - --crypto-key / CRYPTO_KEY - путь до файла с приватным ключом для
+//     расшифровки входящих запросов.
 package main
 
 import (
@@ -49,6 +51,7 @@ type Config struct {
 	FileStoragePath string `env:"FILE_STORAGE_PATH"`
 	DBConnString    string `env:"DATABASE_DSN"`
 	Key             string `env:"KEY"`
+	CryptoKey       string `env:"CRYPTO_KEY"`
 	AuditFile       string `env:"AUDIT_FILE"`
 	AuditURL        string `env:"AUDIT_URL"`
 	StoreInterval   uint   `env:"STORE_INTERVAL"`
@@ -89,6 +92,8 @@ func getConfig() (result Config) {
 		"файл для хранения лога запросов")
 	var flagAuditURL = pflag.StringP("audit-url", "u", "",
 		"URL для отправки лога запросов")
+	var flagCryptoKey = pflag.String("crypto-key", "",
+		"path to file with private RSA key")
 
 	err := env.Parse(&result)
 
@@ -125,6 +130,10 @@ func getConfig() (result Config) {
 
 	if result.Key == "" {
 		result.Key = *flagKey
+	}
+
+	if result.CryptoKey == "" {
+		result.CryptoKey = *flagCryptoKey
 	}
 
 	return
@@ -193,6 +202,10 @@ func run() error {
 		logger.Fatal(err)
 	}
 
+	if _, err := crypto.InitDecryptor(conf.CryptoKey); err != nil {
+		return err
+	}
+
 	audit := auditor.NewAuditor()
 
 	if conf.AuditFile != "" {
@@ -215,7 +228,7 @@ func run() error {
 	router := handler.GetRouter(storage, audit)
 	server := &http.Server{
 		Addr:    conf.Address,
-		Handler: crypto.SignHandle(compressor.GzipHandle(router)),
+		Handler: crypto.DecryptHandle(crypto.SignHandle(compressor.GzipHandle(router))),
 	}
 
 	serverErr := make(chan error, 1)
