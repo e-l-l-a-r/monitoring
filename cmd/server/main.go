@@ -17,10 +17,13 @@
 //   - --db-conn-string, -d / DATABASE_DSN - строка подключения к базе данных;
 //     если задана, используется SQL-хранилище.
 //   - --key, -k / KEY - ключ для проверки подписи запросов.
-//   - --audit-file, -c / AUDIT_FILE - файл для записи аудита запросов.
+//   - --audit-file / AUDIT_FILE - файл для записи аудита запросов.
 //   - --audit-url, -u / AUDIT_URL - URL для отправки аудита запросов.
 //   - --crypto-key / CRYPTO_KEY - путь до файла с приватным ключом для
 //     расшифровки входящих запросов.
+//   - --config, -c / CONFIG - путь к файлу конфигурации в формате JSON.
+//     Значения из файла имеют меньший приоритет, чем флаги и переменные
+//     окружения.
 package main
 
 import (
@@ -39,6 +42,7 @@ import (
 
 	"github.com/e-l-l-a-r/monitoring/internal/auditor"
 	"github.com/e-l-l-a-r/monitoring/internal/compressor"
+	"github.com/e-l-l-a-r/monitoring/internal/config"
 	"github.com/e-l-l-a-r/monitoring/internal/crypto"
 	"github.com/e-l-l-a-r/monitoring/internal/handler"
 	"github.com/e-l-l-a-r/monitoring/internal/logger"
@@ -54,6 +58,7 @@ type Config struct {
 	CryptoKey       string `env:"CRYPTO_KEY"`
 	AuditFile       string `env:"AUDIT_FILE"`
 	AuditURL        string `env:"AUDIT_URL"`
+	Config          string `env:"CONFIG"`
 	StoreInterval   uint   `env:"STORE_INTERVAL"`
 	Restore         bool   `env:"RESTORE"`
 }
@@ -73,7 +78,9 @@ func parseFlags() {
 	pflag.Parse()
 }
 
-func getConfig() (result Config) {
+func getConfig() (Config, error) {
+	var result Config
+
 	var flagRunAddr = pflag.StringP("address", "a", "localhost:8080",
 		"адрес и порт для запуска сервера")
 	var flagLogLevel = pflag.StringP("log-level", "l", "Info",
@@ -88,12 +95,14 @@ func getConfig() (result Config) {
 		"строка подключения к базе данных")
 	var flagKey = pflag.StringP("key", "k", "",
 		"Ключ для подписи запросов")
-	var flagAuditFile = pflag.StringP("audit-file", "c", "",
+	var flagAuditFile = pflag.String("audit-file", "",
 		"файл для хранения лога запросов")
 	var flagAuditURL = pflag.StringP("audit-url", "u", "",
 		"URL для отправки лога запросов")
 	var flagCryptoKey = pflag.String("crypto-key", "",
 		"path to file with private RSA key")
+	var flagConfig = pflag.StringP("config", "c", "",
+		"путь к файлу конфигурации в формате JSON")
 
 	err := env.Parse(&result)
 
@@ -103,40 +112,39 @@ func getConfig() (result Config) {
 
 	parseFlags()
 
-	if result.Address == "" {
-		result.Address = *flagRunAddr
-	}
-	if result.LogLevel == "" {
-		result.LogLevel = *flagLogLevel
-	}
-	if result.StoreInterval == 0 {
-		result.StoreInterval = *flagStoreInterval
-	}
-	if result.FileStoragePath == "" {
-		result.FileStoragePath = *flagFileStoragePath
-	}
-	if !result.Restore {
-		result.Restore = *flagRestore
-	}
-	if result.DBConnString == "" {
-		result.DBConnString = *flagDBConnString
-	}
-	if result.AuditFile == "" {
-		result.AuditFile = *flagAuditFile
-	}
-	if result.AuditURL == "" {
-		result.AuditURL = *flagAuditURL
+	if result.Config == "" {
+		result.Config = *flagConfig
 	}
 
-	if result.Key == "" {
-		result.Key = *flagKey
+	var fileConf config.Server
+	if err := config.Load(result.Config, &fileConf); err != nil {
+		return result, err
 	}
 
-	if result.CryptoKey == "" {
-		result.CryptoKey = *flagCryptoKey
-	}
+	flags := pflag.CommandLine
 
-	return
+	result.Address = config.ResolveString(result.Address,
+		flags.Changed("address"), *flagRunAddr, fileConf.Address)
+	result.LogLevel = config.ResolveString(result.LogLevel,
+		flags.Changed("log-level"), *flagLogLevel, fileConf.LogLevel)
+	result.StoreInterval = config.ResolveSeconds(result.StoreInterval,
+		flags.Changed("store-interval"), *flagStoreInterval, fileConf.StoreInterval)
+	result.FileStoragePath = config.ResolveString(result.FileStoragePath,
+		flags.Changed("file-storage-path"), *flagFileStoragePath, fileConf.StoreFile)
+	result.Restore = config.ResolveBool(result.Restore,
+		flags.Changed("restore"), *flagRestore, fileConf.Restore)
+	result.DBConnString = config.ResolveString(result.DBConnString,
+		flags.Changed("db-conn-string"), *flagDBConnString, fileConf.DatabaseDSN)
+	result.AuditFile = config.ResolveString(result.AuditFile,
+		flags.Changed("audit-file"), *flagAuditFile, fileConf.AuditFile)
+	result.AuditURL = config.ResolveString(result.AuditURL,
+		flags.Changed("audit-url"), *flagAuditURL, fileConf.AuditURL)
+	result.Key = config.ResolveString(result.Key,
+		flags.Changed("key"), *flagKey, fileConf.Key)
+	result.CryptoKey = config.ResolveString(result.CryptoKey,
+		flags.Changed("crypto-key"), *flagCryptoKey, fileConf.CryptoKey)
+
+	return result, nil
 }
 
 func main() {
@@ -147,7 +155,11 @@ func main() {
 }
 
 func run() error {
-	conf := getConfig()
+	conf, err := getConfig()
+	if err != nil {
+		return err
+	}
+
 	log, err := logger.InitLogger(conf.LogLevel)
 	ctx := context.Background()
 

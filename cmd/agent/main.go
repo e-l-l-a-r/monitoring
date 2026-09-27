@@ -16,6 +16,9 @@
 //     значение 0 включает синхронную отправку.
 //   - --crypto-key / CRYPTO_KEY - путь до файла с публичным ключом для
 //     шифрования отправляемых данных.
+//   - --config, -c / CONFIG - путь к файлу конфигурации в формате JSON.
+//     Значения из файла имеют меньший приоритет, чем флаги и переменные
+//     окружения.
 package main
 
 import (
@@ -34,6 +37,7 @@ import (
 
 	"github.com/e-l-l-a-r/monitoring/internal/agent"
 	"github.com/e-l-l-a-r/monitoring/internal/compressor"
+	"github.com/e-l-l-a-r/monitoring/internal/config"
 	"github.com/e-l-l-a-r/monitoring/internal/crypto"
 	"github.com/e-l-l-a-r/monitoring/internal/logger"
 	"github.com/e-l-l-a-r/monitoring/internal/model"
@@ -43,10 +47,13 @@ var buildVersion string
 var buildDate string
 var buildCommit string
 
-type config struct {
+// appConfig - настройки агента, собранные из окружения, флагов и файла
+// конфигурации.
+type appConfig struct {
 	Address        string `env:"ADDRESS"`
 	LogLevel       string `env:"LOG_LEVEL"`
 	Key            string `env:"KEY"`
+	Config         string `env:"CONFIG"`
 	PollInterval   uint   `env:"POLL_INTERVAL"`
 	ReportInterval uint   `env:"REPORT_INTERVAL"`
 	CryptoKey      string `env:"CRYPTO_KEY"`
@@ -64,7 +71,9 @@ func parseFlags() {
 	pflag.Parse()
 }
 
-func getConfig() (result config) {
+func getConfig() (appConfig, error) {
+	var result appConfig
+
 	var flagRunAddr = pflag.StringP("address", "a", "localhost:8080",
 		"адрес и порт сервера для подключения")
 	var pollInterval = pflag.UintP("poll-interval", "p", 2,
@@ -79,6 +88,8 @@ func getConfig() (result config) {
 		"Лимит запросов")
 	var flagCryptoKey = pflag.String("crypto-key", "",
 		"path to file with public RSA key")
+	var flagConfig = pflag.StringP("config", "c", "",
+		"путь к файлу конфигурации в формате JSON")
 
 	err := env.Parse(&result)
 	if err != nil {
@@ -87,35 +98,33 @@ func getConfig() (result config) {
 
 	parseFlags()
 
-	if result.Address == "" {
-		result.Address = *flagRunAddr
+	if result.Config == "" {
+		result.Config = *flagConfig
 	}
 
-	if result.PollInterval == 0 {
-		result.PollInterval = *pollInterval
+	var fileConf config.Agent
+	if err := config.Load(result.Config, &fileConf); err != nil {
+		return result, err
 	}
 
-	if result.ReportInterval == 0 {
-		result.ReportInterval = *reportInterval
-	}
+	flags := pflag.CommandLine
 
-	if result.LogLevel == "" {
-		result.LogLevel = *flagLogLevel
-	}
+	result.Address = config.ResolveString(result.Address,
+		flags.Changed("address"), *flagRunAddr, fileConf.Address)
+	result.PollInterval = config.ResolveSeconds(result.PollInterval,
+		flags.Changed("poll-interval"), *pollInterval, fileConf.PollInterval)
+	result.ReportInterval = config.ResolveSeconds(result.ReportInterval,
+		flags.Changed("report-interval"), *reportInterval, fileConf.ReportInterval)
+	result.LogLevel = config.ResolveString(result.LogLevel,
+		flags.Changed("log-level"), *flagLogLevel, fileConf.LogLevel)
+	result.Key = config.ResolveString(result.Key,
+		flags.Changed("key"), *flagKey, fileConf.Key)
+	result.RateLimit = config.ResolveUint(result.RateLimit,
+		flags.Changed("rate-limit"), *flagRateLimit, fileConf.RateLimit)
+	result.CryptoKey = config.ResolveString(result.CryptoKey,
+		flags.Changed("crypto-key"), *flagCryptoKey, fileConf.CryptoKey)
 
-	if result.Key == "" {
-		result.Key = *flagKey
-	}
-
-	if result.RateLimit == 0 {
-		result.RateLimit = *flagRateLimit
-	}
-
-	if result.CryptoKey == "" {
-		result.CryptoKey = *flagCryptoKey
-	}
-
-	return
+	return result, nil
 }
 
 type Logger interface {
@@ -165,7 +174,7 @@ func sendData(client *http.Client, log Logger, url string, val interface{}) erro
 	return err
 }
 
-func runSync(conf config, mon *agent.DataCollector, client *http.Client, log Logger) error {
+func runSync(conf appConfig, mon *agent.DataCollector, client *http.Client, log Logger) error {
 	var counter uint // счетчик не может быть меньше нуля
 	for {
 		mon.UpdMetrics()
@@ -237,7 +246,11 @@ func asyncSender(url string, data <-chan agent.ChannaledMetric,
 func main() {
 	logger.PrintBuildInfo(buildVersion, buildDate, buildCommit)
 
-	conf := getConfig()
+	conf, err := getConfig()
+	if err != nil {
+		logger.Fatal(err)
+	}
+
 	log, err := logger.InitLogger(conf.LogLevel)
 
 	if err != nil {
