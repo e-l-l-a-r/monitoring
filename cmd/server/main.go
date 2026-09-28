@@ -34,6 +34,7 @@ import (
 	_ "net/http/pprof" // подключаем пакет pprof
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -163,6 +164,11 @@ func run() error {
 	log, err := logger.InitLogger(conf.LogLevel)
 	ctx := context.Background()
 
+	// Подписываемся на сигналы завершения до инициализации хранилища,
+	// чтобы не потерять сигнал, пришедший во время старта.
+	sigCtx, stopSignals := signal.NotifyContext(ctx, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
+	defer stopSignals()
+
 	if err != nil {
 		return err
 	}
@@ -172,6 +178,9 @@ func run() error {
 	log.InfoMsg("Restore on startup: ", conf.Restore)
 	log.InfoMsg("==================================")
 	var storage handler.Storage
+	// flush выполняет финальное сохранение данных при завершении сервера.
+	// Если не пишем в файл, делаем заглушку
+	flush := func() error { return nil }
 	if conf.DBConnString != "" {
 		log.InfoMsg("Use DataBase storage")
 		res, e := logger.ExecuteWithRetry(func(args ...interface{}) (interface{}, error) {
@@ -198,16 +207,36 @@ func run() error {
 			}
 		}
 
-		syncTicker := time.NewTicker(time.Duration(conf.StoreInterval) * time.Second)
-		defer syncTicker.Stop()
+		memStorage := storage.(*repository.MemStorage)
+		syncDone := make(chan struct{})
+		var syncWG sync.WaitGroup
 
-		go func() {
-			for range syncTicker.C {
-				if e := storage.SyncIfNeed(ctx); e != nil {
-					log.WarnMsg("Error during periodic sync:", e)
+		// При нулевом интервале запись синхронная (в хендлерах), тикер не нужен.
+		if conf.StoreInterval > 0 {
+			syncTicker := time.NewTicker(time.Duration(conf.StoreInterval) * time.Second)
+			syncWG.Add(1)
+			go func() {
+				defer syncWG.Done()
+				defer syncTicker.Stop()
+				for {
+					select {
+					case <-syncDone:
+						return
+					case <-syncTicker.C:
+						if e := storage.SyncIfNeed(ctx); e != nil {
+							log.WarnMsg("Error during periodic sync:", e)
+						}
+					}
 				}
-			}
-		}()
+			}()
+		}
+
+		flush = func() error {
+			close(syncDone)
+			syncWG.Wait()
+			log.InfoMsg("Saving metrics to ", conf.FileStoragePath)
+			return memStorage.Flush(ctx)
+		}
 	}
 
 	if _, err := crypto.InitSigner(conf.Key); err != nil {
@@ -252,16 +281,21 @@ func run() error {
 		serverErr <- nil
 	}()
 
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
-	defer signal.Stop(stop)
-
+	var runErr error
 	select {
-	case err := <-serverErr:
-		return err
-	case <-stop:
+	case runErr = <-serverErr:
+	case <-sigCtx.Done():
+		log.InfoMsg("Shutdown signal received, stopping server")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		return server.Shutdown(shutdownCtx)
+
+		runErr = server.Shutdown(shutdownCtx)
 	}
+
+	// Сохраняем данные даже если Shutdown завершился с ошибкой.
+	if err := flush(); err != nil {
+		runErr = errors.Join(runErr, err)
+	}
+	log.InfoMsg("Server stopped")
+	return runErr
 }

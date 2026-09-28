@@ -23,13 +23,16 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"net/http"
 	"os"
+	"os/signal"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/caarlos0/env/v6"
@@ -174,50 +177,86 @@ func sendData(client *http.Client, log Logger, url string, val interface{}) erro
 	return err
 }
 
-func runSync(conf appConfig, mon *agent.DataCollector, client *http.Client, log Logger) error {
-	var counter uint // счетчик не может быть меньше нуля
-	for {
-		mon.UpdMetrics()
-		// отправляем данные только по достижении счетчиком заданного значения
-		if counter*conf.PollInterval >= conf.ReportInterval {
-			vals := mon.GetValues()
-			var errs []error
-			log.InfoMsg("Sending data to server")
-			url := fmt.Sprintf("http://%s/updates/", conf.Address)
-			values := make([]model.Metrics, 0, len(vals))
-			for _, v := range vals {
-				values = append(values, v.Metrics)
-			}
+// sendAll отправляет все накопленные метрики пакетом, а при ошибке — по одной.
+func sendAll(conf appConfig, mon *agent.DataCollector, client *http.Client, log Logger) {
+	vals := mon.GetValues()
+	var errs []error
+	log.InfoMsg("Sending data to server")
+	url := fmt.Sprintf("http://%s/updates/", conf.Address)
+	values := make([]model.Metrics, 0, len(vals))
+	for _, v := range vals {
+		values = append(values, v.Metrics)
+	}
+	err := logger.ExecuteWithRetryNoResult(func(args ...interface{}) error {
+		return sendData(client, log, url, values)
+	})
+	errs = append(errs, err)
+	if err == nil {
+		for key := range vals {
+			mon.OnSuccessSent(key)
+		}
+	} else {
+		for key, val := range vals {
+			url := fmt.Sprintf("http://%s/update/", conf.Address)
 			err := logger.ExecuteWithRetryNoResult(func(args ...interface{}) error {
-				return sendData(client, log, url, values)
+				return sendData(client, log, url, val.Metrics)
 			})
 			errs = append(errs, err)
 			if err == nil {
-				for key := range vals {
-					mon.OnSuccessSent(key)
-				}
-			} else {
-				for key, val := range vals {
-					url := fmt.Sprintf("http://%s/update/", conf.Address)
-					err := logger.ExecuteWithRetryNoResult(func(args ...interface{}) error {
-						return sendData(client, log, url, val.Metrics)
-					})
-					errs = append(errs, err)
-					if err == nil {
-						mon.OnSuccessSent(key)
-					}
-				}
+				mon.OnSuccessSent(key)
 			}
-			if errors.Join(errs...) != nil {
-				log.WarnMsg("Some metrics not sent")
-			} else {
-				log.InfoMsg("All sent")
-			}
+		}
+	}
+	if errors.Join(errs...) != nil {
+		log.WarnMsg("Some metrics not sent")
+	} else {
+		log.InfoMsg("All sent")
+	}
+}
+
+// runSync собирает и отправляет метрики до отмены ctx. При отмене отправляет
+// данные, собранные после последней отправки, и завершается.
+func runSync(ctx context.Context, conf appConfig, mon *agent.DataCollector, client *http.Client, log Logger) error {
+	var counter uint // счетчик не может быть меньше нуля
+	pending := false // есть собранные, но не отправленные данные
+	for {
+		mon.UpdMetrics()
+		pending = true
+		// отправляем данные только по достижении счетчиком заданного значения
+		if counter*conf.PollInterval >= conf.ReportInterval {
+			sendAll(conf, mon, client, log)
+			pending = false
 			counter = 0
 		}
-		time.Sleep(time.Duration(conf.PollInterval) * time.Second)
+		select {
+		case <-ctx.Done():
+			if pending {
+				log.InfoMsg("Sending pending data before shutdown")
+				sendAll(conf, mon, client, log)
+			}
+			return nil
+		case <-time.After(time.Duration(conf.PollInterval) * time.Second):
+		}
 		counter += 1
 	}
+}
+
+// runAsync запускает сбор метрик и conf.RateLimit параллельных отправителей.
+// При отмене ctx сбор останавливается, а отправители досылают уже собранные
+// данные и завершаются.
+func runAsync(ctx context.Context, conf appConfig, mon *agent.DataCollector, client *http.Client, log Logger) {
+	dataCh := mon.MetricsReader(ctx.Done(), conf.PollInterval)
+
+	url := fmt.Sprintf("http://%s/update/", conf.Address)
+
+	var w uint
+	var wg sync.WaitGroup
+	for w = 0; w < conf.RateLimit; w++ {
+		wg.Add(1)
+		go asyncSender(url, dataCh, mon, client, log, &wg)
+	}
+
+	wg.Wait()
 }
 
 func asyncSender(url string, data <-chan agent.ChannaledMetric,
@@ -276,28 +315,47 @@ func main() {
 		logger.Fatal(err)
 	}
 
-	//Запускаем синхронную отправку данных на сервер
-	if conf.RateLimit == 0 {
-		err = runSync(conf, mon, &client, log)
-		if err != nil {
-			logger.Fatal(err)
+	if err := run(conf, mon, &client, log); err != nil {
+		logger.Fatal(err)
+	}
+}
+
+// shutdownTimeout - максимальное время на досылку данных после получения сигнала.
+const shutdownTimeout = 10 * time.Second
+
+// run запускает сбор и отправку метрик и штатно завершает работу по сигналам
+// SIGTERM, SIGINT и SIGQUIT, досылая данные, находящиеся в обработке.
+func run(conf appConfig, mon *agent.DataCollector, client *http.Client, log Logger) error {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
+	defer stop()
+
+	done := make(chan error, 1)
+	go func() {
+		// При нулевом лимите запускаем синхронную отправку данных на сервер
+		if conf.RateLimit == 0 {
+			done <- runSync(ctx, conf, mon, client, log)
+			return
 		}
-		return
+		runAsync(ctx, conf, mon, client, log)
+		done <- nil
+	}()
+
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
 	}
 
-	doneCh := make(chan struct{})
-	defer close(doneCh)
-	dataCh := mon.MetricsReader(doneCh, conf.PollInterval)
+	// Восстанавливаем стандартную обработку сигналов: повторный сигнал
+	// завершит процесс немедленно.
+	stop()
+	log.InfoMsg("Shutdown signal received, sending pending data")
 
-	url := fmt.Sprintf("http://%s/update/", conf.Address)
-
-	var w uint
-	var wg sync.WaitGroup
-	for w = 0; w < conf.RateLimit; w++ {
-		wg.Add(1)
-		go asyncSender(url, dataCh, mon, &client, log, &wg)
+	select {
+	case err := <-done:
+		log.InfoMsg("Agent stopped")
+		return err
+	case <-time.After(shutdownTimeout):
+		return fmt.Errorf("agent shutdown timed out after %s, some data may be lost", shutdownTimeout)
 	}
-
-	wg.Wait()
-
 }

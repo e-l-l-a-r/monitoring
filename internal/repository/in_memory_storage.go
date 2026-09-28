@@ -184,7 +184,7 @@ func (ms *MemStorage) syncToFile(ctx context.Context) error {
 	if ms.SyncFileName == "" {
 		return nil
 	}
-	file, err := os.OpenFile(ms.SyncFileName, os.O_CREATE|os.O_WRONLY, 0644)
+	file, err := os.OpenFile(ms.SyncFileName, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
 		return logger.NewTracedError("Error opening file "+ms.SyncFileName+": ", err)
 	}
@@ -218,6 +218,16 @@ func (ms *MemStorage) RestoreFromFile(ctx context.Context) error {
 		return logger.NewTracedError("Error while restoring data from "+ms.SyncFileName+": ", err)
 	}
 	return nil
+}
+
+// Flush принудительно сохраняет все метрики в файл независимо от SyncInterval.
+// Используется при штатном завершении сервера.
+func (ms *MemStorage) Flush(ctx context.Context) error {
+	err := ms.syncToFile(ctx)
+	if err == nil {
+		ms.lastSyncTime = time.Now()
+	}
+	return err
 }
 
 // SyncIfNeed выполняет синхронизацию данных с файлом, если прошел интервал SyncInterval.
