@@ -222,16 +222,19 @@ func TestResolveString(t *testing.T) {
 
 func TestResolveUint(t *testing.T) {
 	fileValue := uint(7)
+	envOne := uint(1)
+	envZero := uint(0)
 
 	tests := []struct {
 		fileValue   *uint
+		envValue    *uint
 		name        string
-		envValue    uint
 		flagValue   uint
 		want        uint
 		flagChanged bool
 	}{
-		{name: "окружение важнее всего", envValue: 1, flagChanged: true, flagValue: 2, fileValue: &fileValue, want: 1},
+		{name: "окружение важнее всего", envValue: &envOne, flagChanged: true, flagValue: 2, fileValue: &fileValue, want: 1},
+		{name: "нулевое значение окружения считается заданным", envValue: &envZero, flagChanged: true, flagValue: 2, fileValue: &fileValue, want: 0},
 		{name: "флаг важнее файла", flagChanged: true, flagValue: 2, fileValue: &fileValue, want: 2},
 		{name: "файл важнее значения по умолчанию", flagValue: 2, fileValue: &fileValue, want: 7},
 		{name: "без файла берётся значение по умолчанию", flagValue: 2, fileValue: nil, want: 2},
@@ -248,16 +251,19 @@ func TestResolveUint(t *testing.T) {
 func TestResolveBool(t *testing.T) {
 	fileTrue := true
 	fileFalse := false
+	envTrue := true
+	envFalse := false
 
 	tests := []struct {
 		fileValue   *bool
+		envValue    *bool
 		name        string
-		envValue    bool
 		flagChanged bool
 		flagValue   bool
 		want        bool
 	}{
-		{name: "окружение важнее всего", envValue: true, flagChanged: true, flagValue: false, fileValue: &fileFalse, want: true},
+		{name: "окружение важнее всего", envValue: &envTrue, flagChanged: true, flagValue: false, fileValue: &fileFalse, want: true},
+		{name: "false в окружении считается заданным", envValue: &envFalse, flagChanged: true, flagValue: true, fileValue: &fileTrue, want: false},
 		{name: "флаг важнее файла", flagChanged: true, flagValue: false, fileValue: &fileTrue, want: false},
 		{name: "файл важнее значения по умолчанию", flagValue: false, fileValue: &fileTrue, want: true},
 		{name: "файл может отключить значение", flagValue: false, fileValue: &fileFalse, want: false},
@@ -274,16 +280,19 @@ func TestResolveBool(t *testing.T) {
 
 func TestResolveSeconds(t *testing.T) {
 	fileValue := Duration(5 * time.Second)
+	envOne := uint(1)
+	envZero := uint(0)
 
 	tests := []struct {
 		fileValue   *Duration
+		envValue    *uint
 		name        string
-		envValue    uint
 		flagValue   uint
 		want        uint
 		flagChanged bool
 	}{
-		{name: "окружение важнее всего", envValue: 1, flagChanged: true, flagValue: 2, fileValue: &fileValue, want: 1},
+		{name: "окружение важнее всего", envValue: &envOne, flagChanged: true, flagValue: 2, fileValue: &fileValue, want: 1},
+		{name: "нулевое значение окружения считается заданным", envValue: &envZero, flagChanged: true, flagValue: 2, fileValue: &fileValue, want: 0},
 		{name: "флаг важнее файла", flagChanged: true, flagValue: 2, fileValue: &fileValue, want: 2},
 		{name: "файл важнее значения по умолчанию", flagValue: 300, fileValue: &fileValue, want: 5},
 		{name: "без файла берётся значение по умолчанию", flagValue: 300, fileValue: nil, want: 300},

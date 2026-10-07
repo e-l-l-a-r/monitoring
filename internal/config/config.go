@@ -110,11 +110,11 @@ func ResolveString(envValue string, flagChanged bool, flagValue string, fileValu
 	return flagValue
 }
 
-// ResolveUint выбирает значение целочисленного параметра по приоритету
-// источников. Нулевое envValue считается незаданным.
-func ResolveUint(envValue uint, flagChanged bool, flagValue uint, fileValue *uint) uint {
-	if envValue != 0 {
-		return envValue
+// ResolveUint выбирает значение целочисленного параметра по приоритету источников.
+// Нулевой указатель envValue означает, что переменная окружения не задана.
+func ResolveUint(envValue *uint, flagChanged bool, flagValue uint, fileValue *uint) uint {
+	if envValue != nil {
+		return *envValue
 	}
 	if flagChanged {
 		return flagValue
@@ -126,10 +126,10 @@ func ResolveUint(envValue uint, flagChanged bool, flagValue uint, fileValue *uin
 }
 
 // ResolveBool выбирает значение логического параметра по приоритету источников.
-// Значение false в окружении считается незаданным.
-func ResolveBool(envValue bool, flagChanged bool, flagValue bool, fileValue *bool) bool {
-	if envValue {
-		return true
+// Нулевой указатель envValue означает, что переменная окружения не задана.
+func ResolveBool(envValue *bool, flagChanged bool, flagValue bool, fileValue *bool) bool {
+	if envValue != nil {
+		return *envValue
 	}
 	if flagChanged {
 		return flagValue
@@ -140,12 +140,12 @@ func ResolveBool(envValue bool, flagChanged bool, flagValue bool, fileValue *boo
 	return flagValue
 }
 
-// ResolveSeconds выбирает значение интервала в секундах по приоритету
-// источников. Нулевое envValue считается незаданным, интервал из файла
-// конфигурации переводится в целые секунды.
-func ResolveSeconds(envValue uint, flagChanged bool, flagValue uint, fileValue *Duration) uint {
-	if envValue != 0 {
-		return envValue
+// ResolveSeconds выбирает значение интервала в секундах по приоритету источников.
+// Нулевой указатель envValue означает, что переменная окружения не задана.
+// Интервал из файла конфигурации переводится в целые секунды.
+func ResolveSeconds(envValue *uint, flagChanged bool, flagValue uint, fileValue *Duration) uint {
+	if envValue != nil {
+		return *envValue
 	}
 	if flagChanged {
 		return flagValue

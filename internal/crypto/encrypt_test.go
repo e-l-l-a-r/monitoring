@@ -41,18 +41,7 @@ func writeKeyPair(t *testing.T) (pubPath, privPath string) {
 	return pubPath, privPath
 }
 
-// resetCrypto выключает шифрование, чтобы не влиять на остальные тесты пакета.
-func resetCrypto(t *testing.T) {
-	t.Helper()
-	_, err := InitEncryptor("")
-	require.NoError(t, err)
-	_, err = InitDecryptor("")
-	require.NoError(t, err)
-}
-
-func TestInitKeys(t *testing.T) {
-	defer resetCrypto(t)
-
+func TestNewKeys(t *testing.T) {
 	pubPath, privPath := writeKeyPair(t)
 
 	garbageDir := t.TempDir()
@@ -75,7 +64,7 @@ func TestInitKeys(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run("encryptor/"+tt.name, func(t *testing.T) {
-			enc, err := InitEncryptor(tt.path)
+			enc, err := NewEncryptor(tt.path)
 			if tt.wantErr {
 				require.Error(t, err)
 				return
@@ -100,7 +89,7 @@ func TestInitKeys(t *testing.T) {
 
 	for _, tt := range privTests {
 		t.Run("decryptor/"+tt.name, func(t *testing.T) {
-			dec, err := InitDecryptor(tt.path)
+			dec, err := NewDecryptor(tt.path)
 			if tt.wantErr {
 				require.Error(t, err)
 				return
@@ -112,8 +101,6 @@ func TestInitKeys(t *testing.T) {
 }
 
 func TestEncryptDecryptRoundTrip(t *testing.T) {
-	defer resetCrypto(t)
-
 	pubPath, privPath := writeKeyPair(t)
 
 	big := make([]byte, 5000)
@@ -133,12 +120,12 @@ func TestEncryptDecryptRoundTrip(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			enc, err := InitEncryptor(pubPath)
+			enc, err := NewEncryptor(pubPath)
 			require.NoError(t, err)
-			dec, err := InitDecryptor(privPath)
+			dec, err := NewDecryptor(privPath)
 			require.NoError(t, err)
 
-			reader, err := NewEncryptedReader(bytes.NewReader(tt.data))
+			reader, err := enc.NewReader(bytes.NewReader(tt.data))
 			require.NoError(t, err)
 
 			encrypted, err := io.ReadAll(reader)
@@ -156,10 +143,8 @@ func TestEncryptDecryptRoundTrip(t *testing.T) {
 }
 
 func TestDecryptBadInput(t *testing.T) {
-	defer resetCrypto(t)
-
 	_, privPath := writeKeyPair(t)
-	dec, err := InitDecryptor(privPath)
+	dec, err := NewDecryptor(privPath)
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -179,14 +164,29 @@ func TestDecryptBadInput(t *testing.T) {
 	}
 }
 
-func TestNewEncryptedReaderDisabled(t *testing.T) {
-	defer resetCrypto(t)
+func TestNilEncryptorDecryptor(t *testing.T) {
+	data := []byte("plain")
 
-	_, err := InitEncryptor("")
+	var enc *Encryptor
+	reader, err := enc.NewReader(bytes.NewReader(data))
+	require.NoError(t, err)
+	got, err := io.ReadAll(reader)
+	require.NoError(t, err)
+	assert.Equal(t, data, got)
+
+	var dec *Decryptor
+	called := false
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { called = true })
+	dec.Handle(next).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(data)))
+	assert.True(t, called)
+}
+
+func TestEncryptorNewReaderDisabled(t *testing.T) {
+	enc, err := NewEncryptor("")
 	require.NoError(t, err)
 
 	data := []byte("some plain data")
-	reader, err := NewEncryptedReader(bytes.NewReader(data))
+	reader, err := enc.NewReader(bytes.NewReader(data))
 	require.NoError(t, err)
 
 	got, err := io.ReadAll(reader)
@@ -194,15 +194,13 @@ func TestNewEncryptedReaderDisabled(t *testing.T) {
 	assert.Equal(t, data, got)
 }
 
-func TestDecryptHandle(t *testing.T) {
-	defer resetCrypto(t)
-
+func TestDecryptorHandle(t *testing.T) {
 	pubPath, privPath := writeKeyPair(t)
 
 	payload := bytes.Repeat([]byte("payload-"), 700) // заведомо больше одного блока
 
 	t.Run("disabled passthrough", func(t *testing.T) {
-		_, err := InitDecryptor("")
+		dec, err := NewDecryptor("")
 		require.NoError(t, err)
 
 		called := false
@@ -215,7 +213,7 @@ func TestDecryptHandle(t *testing.T) {
 
 		req := httptest.NewRequest(http.MethodPost, "/updates/", bytes.NewReader(payload))
 		rec := httptest.NewRecorder()
-		DecryptHandle(next).ServeHTTP(rec, req)
+		dec.Handle(next).ServeHTTP(rec, req)
 
 		assert.True(t, called)
 		assert.Equal(t, http.StatusOK, rec.Code)
@@ -223,7 +221,7 @@ func TestDecryptHandle(t *testing.T) {
 	})
 
 	t.Run("strict mode rejects plain body", func(t *testing.T) {
-		_, err := InitDecryptor(privPath)
+		dec, err := NewDecryptor(privPath)
 		require.NoError(t, err)
 
 		called := false
@@ -233,19 +231,19 @@ func TestDecryptHandle(t *testing.T) {
 
 		req := httptest.NewRequest(http.MethodPost, "/updates/", bytes.NewReader(payload))
 		rec := httptest.NewRecorder()
-		DecryptHandle(next).ServeHTTP(rec, req)
+		dec.Handle(next).ServeHTTP(rec, req)
 
 		assert.False(t, called, "next must not be called on decryption failure")
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
 	})
 
 	t.Run("strict mode rejects corrupted body", func(t *testing.T) {
-		_, err := InitEncryptor(pubPath)
+		enc, err := NewEncryptor(pubPath)
 		require.NoError(t, err)
-		_, err = InitDecryptor(privPath)
+		dec, err := NewDecryptor(privPath)
 		require.NoError(t, err)
 
-		reader, err := NewEncryptedReader(bytes.NewReader(payload))
+		reader, err := enc.NewReader(bytes.NewReader(payload))
 		require.NoError(t, err)
 		encrypted, err := io.ReadAll(reader)
 		require.NoError(t, err)
@@ -261,19 +259,19 @@ func TestDecryptHandle(t *testing.T) {
 
 		req := httptest.NewRequest(http.MethodPost, "/updates/", bytes.NewReader(corrupted))
 		rec := httptest.NewRecorder()
-		DecryptHandle(next).ServeHTTP(rec, req)
+		dec.Handle(next).ServeHTTP(rec, req)
 
 		assert.False(t, called)
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
 	})
 
 	t.Run("end to end encrypted request", func(t *testing.T) {
-		_, err := InitEncryptor(pubPath)
+		enc, err := NewEncryptor(pubPath)
 		require.NoError(t, err)
-		_, err = InitDecryptor(privPath)
+		dec, err := NewDecryptor(privPath)
 		require.NoError(t, err)
 
-		reader, err := NewEncryptedReader(bytes.NewReader(payload))
+		reader, err := enc.NewReader(bytes.NewReader(payload))
 		require.NoError(t, err)
 
 		called := false
@@ -288,7 +286,7 @@ func TestDecryptHandle(t *testing.T) {
 
 		req := httptest.NewRequest(http.MethodPost, "/updates/", reader)
 		rec := httptest.NewRecorder()
-		DecryptHandle(next).ServeHTTP(rec, req)
+		dec.Handle(next).ServeHTTP(rec, req)
 
 		require.True(t, called)
 		assert.Equal(t, http.StatusOK, rec.Code)

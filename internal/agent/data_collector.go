@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"math/rand"
 	"runtime"
-	syncpkg "sync"
+	"sync"
 	"time"
 
 	"github.com/shirou/gopsutil/v3/cpu"
@@ -126,12 +126,12 @@ func (dc *DataCollector) UpdMetrics() {
 // дочитать остаток данных и завершиться штатно.
 func (dc *DataCollector) MetricsReader(doneCh <-chan struct{}, delay uint) chan ChannaledMetric {
 	ch := make(chan ChannaledMetric, len(dc.metrics))
-	sync := make(chan struct{})
-	var collectors syncpkg.WaitGroup
+	updateSignal := make(chan struct{})
+	var collectors sync.WaitGroup
 
 	// Горутина обновляет данные раз в нужный интервал времени и запускает генерацию данных
 	go func() {
-		defer close(sync)
+		defer close(updateSignal)
 		for {
 			select {
 			case <-doneCh:
@@ -147,7 +147,7 @@ func (dc *DataCollector) MetricsReader(doneCh <-chan struct{}, delay uint) chan 
 				select {
 				case <-doneCh:
 					return
-				case sync <- struct{}{}:
+				case updateSignal <- struct{}{}:
 				}
 			}
 			select {
@@ -168,7 +168,7 @@ func (dc *DataCollector) MetricsReader(doneCh <-chan struct{}, delay uint) chan 
 			defer collectors.Done()
 			logger.Info("Starting collector goroutine for metric " + key)
 			for {
-				_, ok := <-sync
+				_, ok := <-updateSignal
 				if !ok {
 					return
 				}

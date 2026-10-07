@@ -13,47 +13,25 @@ import (
 	"os"
 )
 
-// encryptor шифрует данные открытым ключом RSA.
-type encryptor struct {
+// Encryptor шифрует данные открытым ключом RSA.
+// Нулевой *Encryptor и Encryptor без ключа означают, что шифрование выключено.
+type Encryptor struct {
 	key      *rsa.PublicKey
 	isInited bool
 }
 
-// decryptor расшифровывает данные закрытым ключом RSA.
-type decryptor struct {
+// Decryptor расшифровывает данные закрытым ключом RSA.
+// Нулевой *Decryptor и Decryptor без ключа означают, что расшифровка выключена.
+type Decryptor struct {
 	key      *rsa.PrivateKey
 	isInited bool
 }
 
-// Глобальные переменные для реализации работы синглтонов
-var (
-	singleEncryptor *encryptor
-	singleDecryptor *decryptor
-)
-
-// GetEncryptor возвращает текущий экземпляр шифровальщика.
-func GetEncryptor() (*encryptor, error) {
-	if singleEncryptor == nil {
-		return nil, fmt.Errorf("no encryptor inited")
-	}
-	return singleEncryptor, nil
-}
-
-// GetDecryptor возвращает текущий экземпляр расшифровщика.
-func GetDecryptor() (*decryptor, error) {
-	if singleDecryptor == nil {
-		return nil, fmt.Errorf("no decryptor inited")
-	}
-	return singleDecryptor, nil
-}
-
-// InitEncryptor инициализирует глобальный шифровальщик открытым ключом из файла.
+// NewEncryptor создаёт шифровальщик открытым ключом из файла.
 // Пустой путь означает, что шифрование выключено.
-func InitEncryptor(path string) (*encryptor, error) {
-	singleEncryptor = &encryptor{}
-
+func NewEncryptor(path string) (*Encryptor, error) {
 	if path == "" {
-		return GetEncryptor()
+		return &Encryptor{}, nil
 	}
 
 	key, err := readPublicKey(path)
@@ -61,19 +39,14 @@ func InitEncryptor(path string) (*encryptor, error) {
 		return nil, err
 	}
 
-	singleEncryptor.key = key
-	singleEncryptor.isInited = true
-
-	return GetEncryptor()
+	return &Encryptor{key: key, isInited: true}, nil
 }
 
-// InitDecryptor инициализирует глобальный расшифровщик закрытым ключом из файла.
+// NewDecryptor создаёт расшифровщик закрытым ключом из файла.
 // Пустой путь означает, что расшифровка выключена.
-func InitDecryptor(path string) (*decryptor, error) {
-	singleDecryptor = &decryptor{}
-
+func NewDecryptor(path string) (*Decryptor, error) {
 	if path == "" {
-		return GetDecryptor()
+		return &Decryptor{}, nil
 	}
 
 	key, err := readPrivateKey(path)
@@ -81,10 +54,7 @@ func InitDecryptor(path string) (*decryptor, error) {
 		return nil, err
 	}
 
-	singleDecryptor.key = key
-	singleDecryptor.isInited = true
-
-	return GetDecryptor()
+	return &Decryptor{key: key, isInited: true}, nil
 }
 
 // readPEMBlock читает файл и декодирует из него первый PEM-блок.
@@ -149,7 +119,7 @@ func readPrivateKey(path string) (*rsa.PrivateKey, error) {
 }
 
 // encrypt шифрует данные поблочно алгоритмом RSA-OAEP.
-func (e *encryptor) encrypt(data []byte) ([]byte, error) {
+func (e *Encryptor) encrypt(data []byte) ([]byte, error) {
 	size := e.key.Size()
 	maxChunk := size - 2*sha256.Size - 2
 	if maxChunk <= 0 {
@@ -177,7 +147,7 @@ func (e *encryptor) encrypt(data []byte) ([]byte, error) {
 }
 
 // decrypt расшифровывает поблочно зашифрованные алгоритмом RSA-OAEP данные.
-func (d *decryptor) decrypt(data []byte) ([]byte, error) {
+func (d *Decryptor) decrypt(data []byte) ([]byte, error) {
 	size := d.key.Size()
 	if len(data) == 0 || len(data)%size != 0 {
 		return nil, fmt.Errorf("decrypt data: body length %d is not a multiple of block size %d",
@@ -198,15 +168,10 @@ func (d *decryptor) decrypt(data []byte) ([]byte, error) {
 	return result, nil
 }
 
-// NewEncryptedReader шифрует данные из Reader и возвращает новый Reader с зашифрованным текстом.
+// NewReader шифрует данные из Reader и возвращает новый Reader с зашифрованным текстом.
 // Если шифрование выключено, исходный Reader возвращается без изменений.
-func NewEncryptedReader(r io.Reader) (io.Reader, error) {
-	enc, err := GetEncryptor()
-	if err != nil {
-		return nil, fmt.Errorf("get encryptor error: %w", err)
-	}
-
-	if !enc.isInited {
+func (e *Encryptor) NewReader(r io.Reader) (io.Reader, error) {
+	if e == nil || !e.isInited {
 		return r, nil
 	}
 
@@ -215,7 +180,7 @@ func NewEncryptedReader(r io.Reader) (io.Reader, error) {
 		return nil, fmt.Errorf("read data to encrypt: %w", err)
 	}
 
-	encrypted, err := enc.encrypt(data)
+	encrypted, err := e.encrypt(data)
 	if err != nil {
 		return nil, err
 	}
@@ -223,12 +188,11 @@ func NewEncryptedReader(r io.Reader) (io.Reader, error) {
 	return bytes.NewReader(encrypted), nil
 }
 
-// DecryptHandle — middleware для расшифровки тела входящих запросов.
+// Handle — middleware для расшифровки тела входящих запросов.
 // Если расшифровка выключена, запрос передается дальше без изменений.
-func DecryptHandle(next http.Handler) http.Handler {
+func (d *Decryptor) Handle(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		dec, err := GetDecryptor()
-		if err != nil || !dec.isInited {
+		if d == nil || !d.isInited {
 			// если нет ключа расшифровки, передаём управление
 			// дальше без изменений
 			next.ServeHTTP(w, r)
@@ -240,9 +204,9 @@ func DecryptHandle(next http.Handler) http.Handler {
 			http.Error(w, "Cannot read body", http.StatusBadRequest)
 			return
 		}
-		r.Body.Close()
+		_ = r.Body.Close()
 
-		plain, err := dec.decrypt(data)
+		plain, err := d.decrypt(data)
 		if err != nil {
 			http.Error(w, "Cannot decrypt body", http.StatusBadRequest)
 			return
