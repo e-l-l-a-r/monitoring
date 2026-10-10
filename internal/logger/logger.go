@@ -25,25 +25,28 @@ type (
 		responseData        *responseData
 	}
 
-	// структура самого логгера
-	logger struct {
+	// Logger - логгер приложения поверх zap.Logger. Создаётся через New и
+	// передаётся потребителям как зависимость.
+	Logger struct {
 		zap.Logger
 	}
 )
 
-// Глобальная переменная для реализации работы логгера - синглтона
-var singleLogger *logger
+// singleLogger - логгер по умолчанию, который используют пакетные функции-обёртки
+// Info, Warn, Fatal и ServerRequestLogger. Заполняется только через InitLogger.
+var singleLogger *Logger
 
 // GetLogger возвращает текущий экземпляр логгера. Возвращает ошибку, если логгер не инициализирован.
-func GetLogger() (*logger, error) {
+func GetLogger() (*Logger, error) {
 	if singleLogger == nil {
 		return nil, fmt.Errorf("no logger inited")
 	}
 	return singleLogger, nil
 }
 
-// InitLogger инициализирует глобальный логгер с заданным уровнем логирования (например, "info", "debug").
-func InitLogger(level string) (*logger, error) {
+// New создаёт логгер с заданным уровнем логирования (например, "info", "debug").
+// Глобальное состояние не изменяется.
+func New(level string) (*Logger, error) {
 	// преобразуем текстовый уровень логирования в zap.AtomicLevel
 	lvl, err := zap.ParseAtomicLevel(level)
 	if err != nil {
@@ -66,10 +69,18 @@ func InitLogger(level string) (*logger, error) {
 	if err != nil {
 		return nil, err
 	}
-	singleLogger = &logger{
-		*log,
+	return &Logger{*log}, nil
+}
+
+// InitLogger создаёт логгер через New и делает его логгером по умолчанию для
+// пакетных функций Info, Warn, Fatal и ServerRequestLogger.
+func InitLogger(level string) (*Logger, error) {
+	l, err := New(level)
+	if err != nil {
+		return nil, err
 	}
-	return GetLogger()
+	singleLogger = l
+	return l, nil
 }
 
 func (r *loggingResponseWriter) Write(b []byte) (int, error) {
@@ -87,7 +98,7 @@ func (r *loggingResponseWriter) WriteHeader(statusCode int) {
 
 // ServerRequestLogger — middleware для логирования входящих HTTP-запросов.
 // Логирует URI, метод, статус ответа, длительность и размер.
-func (l *logger) ServerRequestLogger(h http.HandlerFunc) http.HandlerFunc {
+func (l *Logger) ServerRequestLogger(h http.HandlerFunc) http.HandlerFunc {
 	logFn := func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 
@@ -115,7 +126,7 @@ func (l *logger) ServerRequestLogger(h http.HandlerFunc) http.HandlerFunc {
 }
 
 // DoRequestWithLog выполняет HTTP-запрос и логирует результат.
-func (l *logger) DoRequestWithLog(c *http.Client, req *http.Request) (resp *http.Response, err error) {
+func (l *Logger) DoRequestWithLog(c *http.Client, req *http.Request) (resp *http.Response, err error) {
 	resp, err = c.Do(req)
 	if err != nil {
 		l.WarnMsg(err)
@@ -132,7 +143,7 @@ func (l *logger) DoRequestWithLog(c *http.Client, req *http.Request) (resp *http
 }
 
 // InfoMsg логирует сообщение на уровне Info.
-func (l *logger) InfoMsg(args ...interface{}) {
+func (l *Logger) InfoMsg(args ...interface{}) {
 	if l != nil {
 		l.Sugar().Infoln(args)
 	} else {
@@ -141,7 +152,7 @@ func (l *logger) InfoMsg(args ...interface{}) {
 }
 
 // WarnMsg логирует сообщение на уровне Warn.
-func (l *logger) WarnMsg(args ...interface{}) {
+func (l *Logger) WarnMsg(args ...interface{}) {
 	if l != nil {
 		l.Sugar().Warnln(args)
 	} else {

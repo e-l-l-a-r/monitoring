@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/rand"
 	"runtime"
+	"sync"
 	"time"
 
 	"github.com/shirou/gopsutil/v3/cpu"
@@ -120,28 +121,40 @@ func (dc *DataCollector) UpdMetrics() {
 }
 
 // MetricsReader запускает цикл сбора метрик и возвращает канал для получения результатов.
-func (dc *DataCollector) MetricsReader(doneCh chan struct{}, delay uint) chan ChannaledMetric {
+// После закрытия doneCh сбор прекращается, а возвращённый канал закрывается,
+// когда все уже собранные значения помещены в него. Это позволяет получателям
+// дочитать остаток данных и завершиться штатно.
+func (dc *DataCollector) MetricsReader(doneCh <-chan struct{}, delay uint) chan ChannaledMetric {
 	ch := make(chan ChannaledMetric, len(dc.metrics))
-	sync := make(chan struct{})
+	updateSignal := make(chan struct{})
+	var collectors sync.WaitGroup
 
 	// Горутина обновляет данные раз в нужный интервал времени и запускает генерацию данных
 	go func() {
+		defer close(updateSignal)
 		for {
 			select {
 			case <-doneCh:
-				close(sync)
 				return
 			default:
-				logger.Info("Updating metrics")
-				runtime.ReadMemStats(dc.memStt)
-				dc.memUsg, _ = mem.VirtualMemory()
-				cpuVals, _ := cpu.Percent(0, true)
-				copy(*dc.cpuUsg, cpuVals)
-				for range dc.metrics {
-					sync <- struct{}{}
+			}
+			logger.Info("Updating metrics")
+			runtime.ReadMemStats(dc.memStt)
+			dc.memUsg, _ = mem.VirtualMemory()
+			cpuVals, _ := cpu.Percent(0, true)
+			copy(*dc.cpuUsg, cpuVals)
+			for range dc.metrics {
+				select {
+				case <-doneCh:
+					return
+				case updateSignal <- struct{}{}:
 				}
 			}
-			time.Sleep(time.Second * time.Duration(delay))
+			select {
+			case <-doneCh:
+				return
+			case <-time.After(time.Second * time.Duration(delay)):
+			}
 		}
 	}()
 
@@ -150,10 +163,12 @@ func (dc *DataCollector) MetricsReader(doneCh chan struct{}, delay uint) chan Ch
 			metric: metric,
 			Key:    key,
 		}
+		collectors.Add(1)
 		go func() {
+			defer collectors.Done()
 			logger.Info("Starting collector goroutine for metric " + key)
 			for {
-				_, ok := <-sync
+				_, ok := <-updateSignal
 				if !ok {
 					return
 				}
@@ -169,6 +184,12 @@ func (dc *DataCollector) MetricsReader(doneCh chan struct{}, delay uint) chan Ch
 			}
 		}()
 	}
+
+	// Закрываем выходной канал, когда все сборщики завершились.
+	go func() {
+		collectors.Wait()
+		close(ch)
+	}()
 
 	return ch
 }

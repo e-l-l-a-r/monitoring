@@ -1,4 +1,5 @@
-// Package crypto предоставляет инструменты для подписи данных с использованием HMAC-SHA256.
+// Package crypto предоставляет инструменты для подписи данных с использованием HMAC-SHA256
+// и для шифрования данных RSA-OAEP.
 package crypto
 
 import (
@@ -6,7 +7,6 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 	"io"
 	"net/http"
 
@@ -16,27 +16,33 @@ import (
 // SignedWriter — обертка для http.ResponseWriter, выполняющая подпись передаваемых данных.
 type SignedWriter struct {
 	http.ResponseWriter
-	hash []byte
+	signer *Signer
+	hash   []byte
 }
 
-type signer struct {
+// Signer подписывает данные HMAC-SHA256 с секретным ключом. Пустой ключ означает,
+// что подпись выключена. Нулевой *Signer также считается выключенным.
+type Signer struct {
 	key      string
 	isInited bool
 }
 
-// Глобальная переменная для реализации работы синглтона
-var singleSigner *signer
-
-// GetSigner возвращает текущий экземпляр подписчика.
-func GetSigner() (*signer, error) {
-	if singleSigner == nil {
-		return nil, fmt.Errorf("no signer inited")
+// NewSigner создаёт подписчик с секретным ключом. Пустой key выключает подпись.
+func NewSigner(key string) *Signer {
+	return &Signer{
+		key:      key,
+		isInited: key != "",
 	}
-	return singleSigner, nil
 }
 
-func (s *signer) SignBytes(data []byte, init []byte) []byte {
-	if !s.isInited {
+// enabled сообщает, включена ли подпись.
+func (s *Signer) enabled() bool {
+	return s != nil && s.isInited
+}
+
+// SignBytes вычисляет HMAC данных и дописывает его к init. Если подпись выключена, возвращает nil.
+func (s *Signer) SignBytes(data []byte, init []byte) []byte {
+	if !s.enabled() {
 		return nil
 	}
 	h := hmac.New(sha256.New, []byte(s.key))
@@ -46,8 +52,9 @@ func (s *signer) SignBytes(data []byte, init []byte) []byte {
 	return h.Sum(init)
 }
 
-func (s *signer) SignData(data []byte) string {
-	if !s.isInited {
+// SignData возвращает HMAC данных в виде hex-строки. Если подпись выключена, возвращает пустую строку.
+func (s *Signer) SignData(data []byte) string {
+	if !s.enabled() {
 		return ""
 	}
 	h := hmac.New(sha256.New, []byte(s.key))
@@ -57,36 +64,27 @@ func (s *signer) SignData(data []byte) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// InitSigner инициализирует глобальный подписчик с секретным ключом.
-func InitSigner(key string) (*signer, error) {
-	singleSigner = &signer{
-		key:      key,
-		isInited: (key != ""),
-	}
-
-	return GetSigner()
+// NewSignedWriter создает новый SignedWriter для автоматической подписи HTTP-ответов signer-ом s.
+func NewSignedWriter(w http.ResponseWriter, s *Signer) *SignedWriter {
+	sw := new(SignedWriter)
+	sw.ResponseWriter = w
+	sw.signer = s
+	sw.hash = nil
+	return sw
 }
 
-// NewSignedWriter создает новый SignedWriter для автоматической подписи HTTP-ответов.
-func NewSignedWriter(w http.ResponseWriter) *SignedWriter {
-	s := new(SignedWriter)
-	s.ResponseWriter = w
-	s.hash = nil
-	return s
-}
-
+// Write записывает данные в ответ и обновляет подпись.
 func (s *SignedWriter) Write(p []byte) (int, error) {
-	sign, _ := GetSigner()
-	s.hash = sign.SignBytes(p, s.hash)
+	s.hash = s.signer.SignBytes(p, s.hash)
 	return s.ResponseWriter.Write(p)
 }
 
-// SignHandle — middleware для проверки подписи входящих запросов и подписи исходящих ответов.
-func SignHandle(next http.Handler) http.Handler {
+// Handle — middleware для проверки подписи входящих запросов и подписи исходящих ответов.
+// Если подпись выключена, запрос передаётся дальше без изменений.
+func (s *Signer) Handle(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		signer, _ := GetSigner()
-		if !signer.isInited {
-			// еслинет ключа шифрования ничего не днлаем, передаём управление
+		if !s.enabled() {
+			// если нет ключа шифрования ничего не делаем, передаём управление
 			// дальше без изменений
 			logger.Warn("No crypto key specified")
 			next.ServeHTTP(w, r)
@@ -104,7 +102,7 @@ func SignHandle(next http.Handler) http.Handler {
 
 		data, _ := io.ReadAll(r.Body)
 		_ = r.Body.Close()
-		sign := signer.SignData(data)
+		sign := s.SignData(data)
 		if sign != key {
 			// если ключ не совпадает,отбрасываем запрос с ошибкой
 			logger.Warn("Bad sign: ", sign, " != ", key)
@@ -113,7 +111,7 @@ func SignHandle(next http.Handler) http.Handler {
 		}
 
 		// создаём Writer поверх текущего w
-		sw := NewSignedWriter(w)
+		sw := NewSignedWriter(w, s)
 
 		r.Body = io.NopCloser(bytes.NewBuffer(data))
 
@@ -123,16 +121,13 @@ func SignHandle(next http.Handler) http.Handler {
 	})
 }
 
-// NewSegnedReader вычисляет подпись для данных из Reader и возвращает новый Reader с теми же данными.
-func NewSegnedReader(r io.Reader) (io.Reader, string, error) {
-	sig, err := GetSigner()
+// NewReader вычисляет подпись для данных из Reader и возвращает новый Reader с теми же данными.
+// Если подпись выключена, подпись пустая.
+func (s *Signer) NewReader(r io.Reader) (io.Reader, string, error) {
+	data, err := io.ReadAll(r)
 	if err != nil {
-		return nil, "", fmt.Errorf("get sgner error: %w", err)
+		return nil, "", err
 	}
 
-	data, _ := io.ReadAll(r)
-
-	h := sig.SignData(data)
-
-	return bytes.NewBuffer(data), h, nil
+	return bytes.NewBuffer(data), s.SignData(data), nil
 }
