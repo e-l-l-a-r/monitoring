@@ -140,7 +140,9 @@ func requestIP(req *http.Request) string {
 }
 
 // GetRouter настраивает и возвращает chi.Router со всеми эндпоинтами.
-func GetRouter(storage Storage, audit auditor.Publisher) *chi.Mux {
+// Эндпоинты приёма метрик (/update/..., /updates/) доступны только агентам из
+// доверенной подсети trusted; nil или выключенный фильтр снимает ограничение.
+func GetRouter(storage Storage, audit auditor.Publisher, trusted *TrustedSubnet) *chi.Mux {
 	rtr := chi.NewRouter()
 
 	rtr.Use(auditor.WithPublisher(audit))
@@ -148,11 +150,15 @@ func GetRouter(storage Storage, audit auditor.Publisher) *chi.Mux {
 	rtr.Get("/", logger.ServerRequestLogger(listMetrics(storage)))
 	rtr.Post("/", logger.ServerRequestLogger(incorrectAPI))
 
-	rtr.Post("/update/", logger.ServerRequestLogger(updJSONMetric(storage)))
-	rtr.Post("/updates/", logger.ServerRequestLogger(updBatchMetrics(storage)))
-	rtr.Post("/update/{mtype}/", logger.ServerRequestLogger(notFound))
-	rtr.Post("/update/{mtype}/{name}/", logger.ServerRequestLogger(badRequest))
-	rtr.Post("/update/{mtype}/{name}/{val}", logger.ServerRequestLogger(updMetric(storage)))
+	rtr.Group(func(r chi.Router) {
+		r.Use(trusted.Handle)
+
+		r.Post("/update/", logger.ServerRequestLogger(updJSONMetric(storage)))
+		r.Post("/updates/", logger.ServerRequestLogger(updBatchMetrics(storage)))
+		r.Post("/update/{mtype}/", logger.ServerRequestLogger(notFound))
+		r.Post("/update/{mtype}/{name}/", logger.ServerRequestLogger(badRequest))
+		r.Post("/update/{mtype}/{name}/{val}", logger.ServerRequestLogger(updMetric(storage)))
+	})
 
 	rtr.Get("/value/{mtype}/{name}", logger.ServerRequestLogger(getMetric(storage)))
 	rtr.Post("/value/", logger.ServerRequestLogger(getJSONMetric(storage)))

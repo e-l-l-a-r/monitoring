@@ -28,6 +28,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -163,7 +164,31 @@ type sender struct {
 	log       Logger
 	signer    *crypto.Signer
 	encryptor *crypto.Encryptor
+	realIP    string
 	conf      appConfig
+}
+
+// realIPHeader - заголовок, в котором агент передаёт IP-адрес своего хоста.
+const realIPHeader = "X-Real-IP"
+
+// hostIP возвращает первый IP-адрес из addrs, не являющийся loopback.
+// Локальные для канала (link-local) адреса пропускаются.
+func hostIP(addrs []net.Addr) (string, error) {
+	for _, a := range addrs {
+		ipNet, ok := a.(*net.IPNet)
+		if !ok {
+			continue
+		}
+		ip := ipNet.IP
+		if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
+			continue
+		}
+		if ip4 := ip.To4(); ip4 != nil {
+			return ip4.String(), nil
+		}
+	}
+
+	return "", errors.New("не найден IP-адрес хоста, отличный от loopback")
 }
 
 func (s *sender) sendData(url string, val interface{}) error {
@@ -196,6 +221,10 @@ func (s *sender) sendData(url string, val interface{}) error {
 
 	if sign != "" {
 		request.Header.Set("HashSHA256", sign)
+	}
+
+	if s.realIP != "" {
+		request.Header.Set(realIPHeader, s.realIP)
 	}
 
 	response, err := s.log.DoRequestWithLog(s.client, request)
@@ -344,12 +373,24 @@ func newHTTPClient() *http.Client {
 
 func newSender(conf appConfig, log *logger.Logger, mon *agent.DataCollector, client *http.Client,
 	signer *crypto.Signer, encryptor *crypto.Encryptor) *sender {
+	// Адрес определяется один раз при старте. При ошибке агент работает без
+	// заголовка X-Real-IP: сервер с доверенной подсетью ответит 403.
+	var realIP string
+	addrs, err := net.InterfaceAddrs()
+	if err == nil {
+		realIP, err = hostIP(addrs)
+	}
+	if err != nil {
+		log.WarnMsg("не удалось определить IP-адрес хоста, заголовок X-Real-IP не будет отправляться: ", err)
+	}
+
 	return &sender{
 		mon:       mon,
 		client:    client,
 		log:       log,
 		signer:    signer,
 		encryptor: encryptor,
+		realIP:    realIP,
 		conf:      conf,
 	}
 }

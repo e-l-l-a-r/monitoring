@@ -21,6 +21,10 @@
 //   - --audit-url, -u / AUDIT_URL - URL для отправки аудита запросов.
 //   - --crypto-key / CRYPTO_KEY - путь до файла с приватным ключом для
 //     расшифровки входящих запросов.
+//   - --trusted-subnet, -t / TRUSTED_SUBNET - доверенная подсеть в нотации
+//     CIDR. Если задана, запросы на обновление метрик принимаются только с
+//     IP-адресов этой подсети (заголовок X-Real-IP), остальные получают
+//     403 Forbidden. Пустое значение снимает ограничение.
 //   - --config, -c / CONFIG - путь к файлу конфигурации в формате JSON.
 //     Значения из файла имеют меньший приоритет, чем флаги и переменные
 //     окружения.
@@ -74,6 +78,7 @@ type envConfig struct {
 	CryptoKey       string `env:"CRYPTO_KEY"`
 	AuditFile       string `env:"AUDIT_FILE"`
 	AuditURL        string `env:"AUDIT_URL"`
+	TrustedSubnet   string `env:"TRUSTED_SUBNET"`
 	Config          string `env:"CONFIG"`
 }
 
@@ -88,6 +93,7 @@ type Config struct {
 	CryptoKey       string
 	AuditFile       string
 	AuditURL        string
+	TrustedSubnet   string
 	Config          string
 	StoreInterval   uint
 	Restore         bool
@@ -136,6 +142,8 @@ func getConfig(args []string) (Config, error) {
 		"URL для отправки лога запросов")
 	flagCryptoKey := fs.String("crypto-key", "",
 		"path to file with private RSA key")
+	flagTrustedSubnet := fs.StringP("trusted-subnet", "t", "",
+		"доверенная подсеть агентов в нотации CIDR")
 	flagConfig := fs.StringP("config", "c", "",
 		"путь к файлу конфигурации в формате JSON")
 
@@ -179,6 +187,8 @@ func getConfig(args []string) (Config, error) {
 			fs.Changed("key"), *flagKey, fileConf.Key),
 		CryptoKey: config.ResolveString(envConf.CryptoKey,
 			fs.Changed("crypto-key"), *flagCryptoKey, fileConf.CryptoKey),
+		TrustedSubnet: config.ResolveString(envConf.TrustedSubnet,
+			fs.Changed("trusted-subnet"), *flagTrustedSubnet, fileConf.TrustedSubnet),
 	}, nil
 }
 
@@ -327,9 +337,15 @@ func provideAuditor(lc fx.Lifecycle, conf Config, log *logger.Logger) (auditor.P
 	return audit, nil
 }
 
+// provideTrustedSubnet создаёт фильтр доверенной подсети; пустая подсеть
+// отключает проверку, некорректная прерывает запуск.
+func provideTrustedSubnet(conf Config) (*handler.TrustedSubnet, error) {
+	return handler.NewTrustedSubnet(conf.TrustedSubnet)
+}
+
 // provideRouter строит роутер API поверх хранилища и аудитора.
-func provideRouter(storage handler.Storage, audit auditor.Publisher) http.Handler {
-	return handler.GetRouter(storage, audit)
+func provideRouter(storage handler.Storage, audit auditor.Publisher, trusted *handler.TrustedSubnet) http.Handler {
+	return handler.GetRouter(storage, audit, trusted)
 }
 
 // provideServer создаёт HTTP-сервер с цепочкой middleware. Порт занимается
@@ -386,6 +402,7 @@ func newApp(args []string, errs *serverErrors) *fx.App {
 			provideDecryptor,
 			provideStorage,
 			provideAuditor,
+			provideTrustedSubnet,
 			provideRouter,
 			provideServer,
 		),

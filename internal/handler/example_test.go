@@ -19,7 +19,7 @@ func ExampleGetRouter() {
 	defer audit.Close()
 
 	// 2. Создаем роутер
-	r := handler.GetRouter(storage, audit)
+	r := handler.GetRouter(storage, audit, nil)
 
 	// 3. Запускаем тестовый сервер
 	ts := httptest.NewServer(r)
@@ -59,7 +59,7 @@ func ExampleGetRouter_json() {
 	storage := repository.NewMemStorage(0, "")
 	audit := auditor.NewAuditor()
 	defer audit.Close()
-	r := handler.GetRouter(storage, audit)
+	r := handler.GetRouter(storage, audit, nil)
 	ts := httptest.NewServer(r)
 	defer ts.Close()
 

@@ -11,7 +11,7 @@ import (
 
 func BenchmarkRouter_Update(b *testing.B) {
 	ms := repository.NewMemStorage(0, "")
-	router := GetRouter(ms, auditor.NewAuditor())
+	router := GetRouter(ms, auditor.NewAuditor(), nil)
 
 	for b.Loop() {
 		w := httptest.NewRecorder()
@@ -22,7 +22,7 @@ func BenchmarkRouter_Update(b *testing.B) {
 
 func BenchmarkRouter_Value(b *testing.B) {
 	ms := repository.NewMemStorage(0, "")
-	router := GetRouter(ms, auditor.NewAuditor())
+	router := GetRouter(ms, auditor.NewAuditor(), nil)
 	// Seed some data
 	{
 		w := httptest.NewRecorder()

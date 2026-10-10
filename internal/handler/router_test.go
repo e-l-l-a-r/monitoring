@@ -35,7 +35,7 @@ func TestUpdateHandler_InvalidPath(t *testing.T) {
 	audit := auditor.NewAuditor()
 	defer audit.Close()
 
-	ts := httptest.NewServer(GetRouter(repository.NewMemStorage(300, "router_testmetrics.json"), audit))
+	ts := httptest.NewServer(GetRouter(repository.NewMemStorage(300, "router_testmetrics.json"), audit, nil))
 	defer ts.Close()
 
 	tests := []struct {
@@ -65,7 +65,7 @@ func TestUpdateHandler_ValidRequest(t *testing.T) {
 	audit := auditor.NewAuditor()
 	defer audit.Close()
 
-	ts := httptest.NewServer(GetRouter(repository.NewMemStorage(300, "router_testmetrics.json"), audit))
+	ts := httptest.NewServer(GetRouter(repository.NewMemStorage(300, "router_testmetrics.json"), audit, nil))
 	defer ts.Close()
 	tests := []struct {
 		name   string
