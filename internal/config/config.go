@@ -60,6 +60,7 @@ type Server struct {
 	AuditFile     *string   `json:"audit_file"`
 	AuditURL      *string   `json:"audit_url"`
 	TrustedSubnet *string   `json:"trusted_subnet"`
+	GRPCAddress   *string   `json:"grpc_address"`
 	Restore       *bool     `json:"restore"`
 }
 
@@ -72,6 +73,7 @@ type Agent struct {
 	CryptoKey      *string   `json:"crypto_key"`
 	LogLevel       *string   `json:"log_level"`
 	Key            *string   `json:"key"`
+	GRPCAddress    *string   `json:"grpc_address"`
 	RateLimit      *uint     `json:"rate_limit"`
 }
 
