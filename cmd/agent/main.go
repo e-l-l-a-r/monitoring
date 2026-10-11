@@ -16,6 +16,9 @@
 //     значение 0 включает синхронную отправку.
 //   - --crypto-key / CRYPTO_KEY - путь до файла с публичным ключом для
 //     шифрования отправляемых данных.
+//   - --grpc-address, -g / GRPC_ADDRESS - адрес gRPC-сервера. Если задан,
+//     метрики отправляются по gRPC вместо HTTP; IP-адрес агента
+//     передаётся в метаданных x-real-ip, подпись - в hashsha256.
 //   - --config, -c / CONFIG - путь к файлу конфигурации в формате JSON.
 //     Значения из файла имеют меньший приоритет, чем флаги и переменные
 //     окружения.
@@ -28,6 +31,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -38,14 +42,22 @@ import (
 	"github.com/caarlos0/env/v6"
 	"github.com/spf13/pflag"
 	"go.uber.org/fx"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 
 	"github.com/e-l-l-a-r/monitoring/internal/agent"
 	"github.com/e-l-l-a-r/monitoring/internal/compressor"
 	"github.com/e-l-l-a-r/monitoring/internal/config"
 	"github.com/e-l-l-a-r/monitoring/internal/crypto"
+	"github.com/e-l-l-a-r/monitoring/internal/grpcserver"
 	"github.com/e-l-l-a-r/monitoring/internal/logger"
 	"github.com/e-l-l-a-r/monitoring/internal/model"
+	pb "github.com/e-l-l-a-r/monitoring/internal/proto"
 )
+
+// grpcTimeout - максимальное время на один вызов UpdateMetrics.
+const grpcTimeout = time.Second
 
 var buildVersion string
 var buildDate string
@@ -66,6 +78,7 @@ type envConfig struct {
 	Key            string `env:"KEY"`
 	Config         string `env:"CONFIG"`
 	CryptoKey      string `env:"CRYPTO_KEY"`
+	GRPCAddress    string `env:"GRPC_ADDRESS"`
 }
 
 // appConfig - итоговые настройки агента, собранные из окружения, флагов и файла
@@ -76,6 +89,7 @@ type appConfig struct {
 	Key            string
 	Config         string
 	CryptoKey      string
+	GRPCAddress    string
 	PollInterval   uint
 	ReportInterval uint
 	RateLimit      uint
@@ -109,6 +123,8 @@ func getConfig(args []string) (appConfig, error) {
 		"Лимит запросов")
 	var flagCryptoKey = fs.String("crypto-key", "",
 		"path to file with public RSA key")
+	var flagGRPCAddress = fs.StringP("grpc-address", "g", "",
+		"адрес и порт gRPC-сервера; если задан, метрики отправляются по gRPC")
 	var flagConfig = fs.StringP("config", "c", "",
 		"путь к файлу конфигурации в формате JSON")
 
@@ -144,6 +160,8 @@ func getConfig(args []string) (appConfig, error) {
 		fs.Changed("rate-limit"), *flagRateLimit, fileConf.RateLimit)
 	result.CryptoKey = config.ResolveString(envConf.CryptoKey,
 		fs.Changed("crypto-key"), *flagCryptoKey, fileConf.CryptoKey)
+	result.GRPCAddress = config.ResolveString(envConf.GRPCAddress,
+		fs.Changed("grpc-address"), *flagGRPCAddress, fileConf.GRPCAddress)
 
 	return result, nil
 }
@@ -158,12 +176,64 @@ type Logger interface {
 // sender собирает и отправляет метрики на сервер. Все зависимости передаются
 // явно, глобальное состояние не используется.
 type sender struct {
-	mon       *agent.DataCollector
-	client    *http.Client
-	log       Logger
-	signer    *crypto.Signer
-	encryptor *crypto.Encryptor
-	conf      appConfig
+	mon        *agent.DataCollector
+	client     *http.Client
+	log        Logger
+	signer     *crypto.Signer
+	encryptor  *crypto.Encryptor
+	grpcClient pb.MetricsClient
+	realIP     string
+	conf       appConfig
+}
+
+// sendGRPC отправляет метрики одним запросом UpdateMetrics. IP-адрес агента
+// и подпись запроса передаются в метаданных.
+func (s *sender) sendGRPC(metrics []model.Metrics) error {
+	req := &pb.UpdateMetricsRequest{Metrics: grpcserver.ToProto(metrics)}
+
+	var md []string
+	if s.realIP != "" {
+		md = append(md, grpcserver.RealIPKey, s.realIP)
+	}
+	sign, err := grpcserver.SignMessage(s.signer, req)
+	if err != nil {
+		return err
+	}
+	if sign != "" {
+		md = append(md, grpcserver.SignKey, sign)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), grpcTimeout)
+	defer cancel()
+	if len(md) > 0 {
+		ctx = metadata.AppendToOutgoingContext(ctx, md...)
+	}
+
+	_, err = s.grpcClient.UpdateMetrics(ctx, req)
+	return err
+}
+
+// realIPHeader - заголовок, в котором агент передаёт IP-адрес своего хоста.
+const realIPHeader = "X-Real-IP"
+
+// hostIP возвращает первый IP-адрес из addrs, не являющийся loopback.
+// Локальные для канала (link-local) адреса пропускаются.
+func hostIP(addrs []net.Addr) (string, error) {
+	for _, a := range addrs {
+		ipNet, ok := a.(*net.IPNet)
+		if !ok {
+			continue
+		}
+		ip := ipNet.IP
+		if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
+			continue
+		}
+		if ip4 := ip.To4(); ip4 != nil {
+			return ip4.String(), nil
+		}
+	}
+
+	return "", errors.New("не найден IP-адрес хоста, отличный от loopback")
 }
 
 func (s *sender) sendData(url string, val interface{}) error {
@@ -198,6 +268,10 @@ func (s *sender) sendData(url string, val interface{}) error {
 		request.Header.Set("HashSHA256", sign)
 	}
 
+	if s.realIP != "" {
+		request.Header.Set(realIPHeader, s.realIP)
+	}
+
 	response, err := s.log.DoRequestWithLog(s.client, request)
 	if response != nil && response.Body != nil {
 		defer func() {
@@ -207,8 +281,34 @@ func (s *sender) sendData(url string, val interface{}) error {
 	return err
 }
 
+// sendAllGRPC отправляет все накопленные метрики одним gRPC-батчем.
+func (s *sender) sendAllGRPC() {
+	vals := s.mon.GetValues()
+	s.log.InfoMsg("Sending data to gRPC server")
+	values := make([]model.Metrics, 0, len(vals))
+	for _, v := range vals {
+		values = append(values, v.Metrics)
+	}
+	err := logger.ExecuteWithRetryNoResult(func(args ...interface{}) error {
+		return s.sendGRPC(values)
+	})
+	if err != nil {
+		s.log.WarnMsg("Metrics not sent via gRPC: ", err)
+		return
+	}
+	for key := range vals {
+		s.mon.OnSuccessSent(key)
+	}
+	s.log.InfoMsg("All sent")
+}
+
 // sendAll отправляет все накопленные метрики пакетом, а при ошибке — по одной.
+// Если задан gRPC-клиент, метрики отправляются только по gRPC.
 func (s *sender) sendAll() {
+	if s.grpcClient != nil {
+		s.sendAllGRPC()
+		return
+	}
 	vals := s.mon.GetValues()
 	var errs []error
 	s.log.InfoMsg("Sending data to server")
@@ -303,10 +403,15 @@ func (s *sender) asyncSender(url string, data <-chan agent.ChannaledMetric, wg *
 		request.Header.Set("Content-Type", "application/json")
 
 		err = logger.ExecuteWithRetryNoResult(func(args ...interface{}) error {
+			if s.grpcClient != nil {
+				return s.sendGRPC([]model.Metrics{val.Metrics})
+			}
 			return s.sendData(url, val.Metrics)
 		})
 		if err == nil {
 			s.mon.OnSuccessSent(val.Key)
+		} else if s.grpcClient != nil {
+			s.log.WarnMsg("Metric not sent via gRPC: ", err)
 		}
 	}
 }
@@ -342,15 +447,51 @@ func newHTTPClient() *http.Client {
 	}
 }
 
+// newGRPCClient создаёт клиент gRPC-сервиса Metrics и закрывает соединение
+// при остановке приложения. При пустом адресе возвращает nil: метрики
+// отправляются по HTTP. Соединение устанавливается лениво, при первом вызове.
+func newGRPCClient(lc fx.Lifecycle, conf appConfig) (pb.MetricsClient, error) {
+	if conf.GRPCAddress == "" {
+		return nil, nil
+	}
+	// Service config не используется: иначе DNS-резолвер gRPC делает TXT-запрос
+	// _grpc_config.<host>, который иногда висит до истечения grpcTimeout.
+	conn, err := grpc.NewClient(conf.GRPCAddress,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithDisableServiceConfig())
+	if err != nil {
+		return nil, err
+	}
+	// Хук регистрируется раньше цикла отправки, поэтому соединение
+	// закрывается уже после досылки накопленных данных.
+	lc.Append(fx.Hook{OnStop: func(context.Context) error {
+		return conn.Close()
+	}})
+	return pb.NewMetricsClient(conn), nil
+}
+
 func newSender(conf appConfig, log *logger.Logger, mon *agent.DataCollector, client *http.Client,
-	signer *crypto.Signer, encryptor *crypto.Encryptor) *sender {
+	signer *crypto.Signer, encryptor *crypto.Encryptor, grpcClient pb.MetricsClient) *sender {
+	// Адрес определяется один раз при старте. При ошибке агент работает без
+	// заголовка X-Real-IP: сервер с доверенной подсетью ответит 403.
+	var realIP string
+	addrs, err := net.InterfaceAddrs()
+	if err == nil {
+		realIP, err = hostIP(addrs)
+	}
+	if err != nil {
+		log.WarnMsg("не удалось определить IP-адрес хоста, заголовок X-Real-IP не будет отправляться: ", err)
+	}
+
 	return &sender{
-		mon:       mon,
-		client:    client,
-		log:       log,
-		signer:    signer,
-		encryptor: encryptor,
-		conf:      conf,
+		mon:        mon,
+		client:     client,
+		log:        log,
+		signer:     signer,
+		encryptor:  encryptor,
+		grpcClient: grpcClient,
+		realIP:     realIP,
+		conf:       conf,
 	}
 }
 
@@ -400,6 +541,7 @@ func newApp(args []string) *fx.App {
 			newEncryptor,
 			agent.NewDataCollector,
 			newHTTPClient,
+			newGRPCClient,
 			newSender,
 		),
 		fx.Invoke(registerLifecycle),
